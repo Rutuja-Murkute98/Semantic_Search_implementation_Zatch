@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Zatch Search — Semantic Search Demo</title>
+<style>
+  :root {
+    --bg: #f7f8fb;
+    --card: #ffffff;
+    --border: #e2e6ef;
+    --text: #1c2130;
+    --muted: #6b7280;
+    --accent: #2a5cad;
+    --accent-light: #eef2f9;
+    --good: #1a7a3c;
+    --good-bg: #eaf7ee;
+    --semantic: #7a3fc4;
+    --semantic-bg: #f3ecfc;
+    --hybrid: #b5720a;
+    --hybrid-bg: #fdf3e3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161f;
+      --card: #1c2030;
+      --border: #2c3143;
+      --text: #e8eaf2;
+      --muted: #9aa1b4;
+      --accent: #6ea3f5;
+      --accent-light: #202a42;
+      --good: #4fce7c;
+      --good-bg: #16321f;
+      --semantic: #b78cf0;
+      --semantic-bg: #2a1f3f;
+      --hybrid: #f0b44a;
+      --hybrid-bg: #3a2c11;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 32px 20px 60px;
+  }
+  h1 {
+    font-size: 1.4rem;
+    margin: 0 0 4px 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    font-size: 0.9rem;
+    margin: 0 0 24px 0;
+  }
+  form {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  input[type="text"] {
+    flex: 1;
+    padding: 12px 14px;
+    font-size: 1rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--card);
+    color: var(--text);
+  }
+  input[type="text"]:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  button {
+    padding: 12px 20px;
+    font-size: 1rem;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: white;
+    cursor: pointer;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .examples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 10px 0 28px 0;
+  }
+  .example-chip {
+    font-size: 0.8rem;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: var(--accent-light);
+    color: var(--accent);
+    cursor: pointer;
+    border: none;
+  }
+  .status-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 16px;
+    font-size: 0.85rem;
+    color: var(--muted);
+    min-height: 20px;
+  }
+  .mode-badge {
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75rem;
+  }
+  .mode-hybrid { background: var(--hybrid-bg); color: var(--hybrid); }
+  .mode-keyword { background: var(--accent-light); color: var(--accent); }
+  section { margin-bottom: 28px; }
+  section h2 {
+    font-size: 0.95rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--muted);
+    margin: 0 0 10px 0;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+  }
+  .card-main { display: flex; flex-direction: column; gap: 2px; }
+  .card-name { font-weight: 600; }
+  .card-sub { font-size: 0.85rem; color: var(--muted); }
+  .badges { display: flex; gap: 6px; flex-shrink: 0; }
+  .badge {
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .badge-keyword { background: var(--accent-light); color: var(--accent); }
+  .badge-semantic { background: var(--semantic-bg); color: var(--semantic); }
+  .badge-hybrid { background: var(--hybrid-bg); color: var(--hybrid); }
+  .empty, .error {
+    color: var(--muted);
+    font-size: 0.9rem;
+    padding: 16px 0;
+  }
+  .error { color: #c0392b; }
+  .legend {
+    font-size: 0.78rem;
+    color: var(--muted);
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Zatch Search — Semantic Search Demo</h1>
+  <p class="subtitle">Type a natural, descriptive search — not just exact product names — to see keyword and semantic results side by side.</p>
+
+  <form id="search-form">
+    <input type="text" id="query" placeholder="e.g. wedding outfit, gift for wife, office wear..." autocomplete="off">
+    <button type="submit" id="search-btn">Search</button>
+  </form>
+
+  <div class="examples" id="examples"></div>
+
+  <div class="status-line" id="status-line"></div>
+
+  <section>
+    <h2>Products</h2>
+    <div id="products"></div>
+  </section>
+
+  <section>
+    <h2>Sellers</h2>
+    <div id="sellers"></div>
+  </section>
+
+  <div class="legend">
+    <strong>keyword</strong> = matched by exact/partial word &nbsp;·&nbsp;
+    <strong>semantic</strong> = matched by meaning only, via AI embeddings &nbsp;·&nbsp;
+    <strong>hybrid</strong> = matched by both
+  </div>
+</div>
+
+<script>
+  const EXAMPLES = ["wedding outfit", "gift for wife", "office wear", "shop that sells sarees", "ethnic dress for diwali"];
+
+  const form = document.getElementById("search-form");
+  const input = document.getElementById("query");
+  const btn = document.getElementById("search-btn");
+  const statusLine = document.getElementById("status-line");
+  const productsEl = document.getElementById("products");
+  const sellersEl = document.getElementById("sellers");
+  const examplesEl = document.getElementById("examples");
+
+  EXAMPLES.forEach(function (ex) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "example-chip";
+    chip.textContent = ex;
+    chip.addEventListener("click", function () {
+      input.value = ex;
+      runSearch(ex);
+    });
+    examplesEl.appendChild(chip);
+  });
+
+  function badgeClass(matchType) {
+    if (matchType === "semantic") return "badge-semantic";
+    if (matchType === "hybrid") return "badge-hybrid";
+    return "badge-keyword";
+  }
+
+  function renderProducts(products) {
+    productsEl.innerHTML = "";
+    if (!products || products.length === 0) {
+      productsEl.innerHTML = '<div class="empty">No products found.</div>';
+      return;
+    }
+    products.forEach(function (p) {
+      const card = document.createElement("div");
+      card.className = "card";
+      const score = (p.vectorScore !== undefined && p.vectorScore !== null)
+        ? '<span class="card-sub">similarity: ' + p.vectorScore + '</span>' : "";
+      card.innerHTML =
+        '<div class="card-main">' +
+          '<span class="card-name">' + escapeHtml(p.name || "") + '</span>' +
+          '<span class="card-sub">Rs ' + (p.price !== undefined ? p.price : "-") + '</span>' +
+          score +
+        '</div>' +
+        '<div class="badges"><span class="badge ' + badgeClass(p.matchType) + '">' + (p.matchType || "keyword") + '</span></div>';
+      productsEl.appendChild(card);
+    });
+  }
+
+  function renderSellers(sellers) {
+    sellersEl.innerHTML = "";
+    if (!sellers || sellers.length === 0) {
+      sellersEl.innerHTML = '<div class="empty">No sellers found.</div>';
+      return;
+    }
+    sellers.forEach(function (s) {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML =
+        '<div class="card-main">' +
+          '<span class="card-name">' + escapeHtml(s.username || "") + '</span>' +
+          '<span class="card-sub">' + escapeHtml(s.shopName || "") + '</span>' +
+        '</div>' +
+        '<div class="badges"><span class="badge ' + badgeClass(s.matchType) + '">' + (s.matchType || "keyword") + '</span></div>';
+      sellersEl.appendChild(card);
+    });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  async function runSearch(query) {
+    if (!query || !query.trim()) return;
+    btn.disabled = true;
+    statusLine.textContent = "Searching...";
+    productsEl.innerHTML = "";
+    sellersEl.innerHTML = "";
+    try {
+      const res = await fetch("/search?query=" + encodeURIComponent(query));
+      const data = await res.json();
+      const mode = data.searchMode || "keyword-only";
+      const modeClass = mode === "hybrid" ? "mode-hybrid" : "mode-keyword";
+      statusLine.innerHTML =
+        '<span class="mode-badge ' + modeClass + '">' + mode + '</span>' +
+        '<span>corrected query: "' + escapeHtml(data.correctedQuery || query) + '"</span>';
+      renderProducts(data.products);
+      renderSellers(data.sellers);
+    } catch (err) {
+      statusLine.innerHTML = '<span class="error">Request failed: ' + escapeHtml(String(err)) + '</span>';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    runSearch(input.value);
+  });
+</script>
+</body>
+</html>

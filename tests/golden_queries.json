@@ -1,0 +1,15 @@
+{
+  "_readme": "Fill expectedIds with real product/seller _id strings from your catalog once you've picked golden matches for each query. Cases with an empty expectedIds are skipped by run_eval.py. See SEMANTIC_SEARCH_PLAN.md §6 (Phase 6).",
+  "queries": [
+    {"query": "wedding outfit", "expectedIds": []},
+    {"query": "something for office wear", "expectedIds": []},
+    {"query": "ethnic dress for diwali", "expectedIds": []},
+    {"query": "gift for wife", "expectedIds": []},
+    {"query": "shop that sells sarees", "expectedIds": []},
+    {"query": "sadi", "expectedIds": []},
+    {"query": "red saree under 3000", "expectedIds": []},
+    {"query": "formal shoes for men", "expectedIds": []},
+    {"query": "birthday gift for girlfriend", "expectedIds": []},
+    {"query": "party wear dress", "expectedIds": []}
+  ]
+}
