@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: zatch-search
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      - key: MONGO_URI
+        sync: false   # set this manually in Render dashboard
+      - key: VOYAGE_API_KEY
+        sync: false   # set this manually in Render dashboard
+
+  - type: cron
+    name: zatch-search-backfill
+    runtime: python
+    schedule: "0 */6 * * *"   # every 6 hours — keeps embeddings fresh
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/backfill_embeddings.py
+    envVars:
+      - key: MONGO_URI
+        sync: false   # set this manually in Render dashboard
+      - key: VOYAGE_API_KEY
+        sync: false   # set this manually in Render dashboard
