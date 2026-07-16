@@ -4,3 +4,5 @@ __pycache__/
 .env
 .claude/
 *.pdf
+PROJECT_STATUS.md
+SEMANTIC_SEARCH_PLAN.md
