@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from app.search import router as search_router
 
@@ -20,7 +21,7 @@ app.mount("/demo", StaticFiles(directory=Path(__file__).parent / "static", html=
 
 @app.get("/")
 def home():
-    return {"message": "Zatch Search API v3 running 🚀"}
+    return RedirectResponse(url="/demo/")
 
 
 @app.get("/health")
