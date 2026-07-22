@@ -3,7 +3,10 @@ services:
     name: zatch-search
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn main:app -w 2 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    startCommand: gunicorn main:app -w 1 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    # 1 worker, not more: each worker loads its own full copy of the local
+    # embedding model into memory, and Render's free tier (512 MB) has
+    # crashed under 2 workers -- see PROJECT_STATUS.md for details.
     envVars:
       - key: MONGO_URI
         sync: false   # set this manually in Render dashboard
