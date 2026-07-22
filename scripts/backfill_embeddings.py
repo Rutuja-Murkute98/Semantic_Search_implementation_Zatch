@@ -1,14 +1,16 @@
 """
-backfill_embeddings.py — computes/refreshes the `embedding` vector for every
-product and seller, so semantic search has vectors to search over.
+backfill_embeddings.py — computes/refreshes the `embedding` vector for
+every product, seller, and bit, so semantic search has vectors to search
+over. Runs entirely locally (app/embeddings.py uses fastembed, not a
+hosted API), so there's no rate limit or API key needed here.
 
 Run manually for the first backfill:
     python scripts/backfill_embeddings.py
 
 Then schedule it (see the `zatch-search-backfill` cron job in render.yaml)
-so new/edited products and sellers pick up vectors automatically. Docs are
-skipped if their `embeddingHash` already matches their current text, so
-re-runs are cheap.
+so new/edited products/sellers/bits pick up vectors automatically. Docs
+are skipped if their `embeddingHash` already matches their current text,
+so re-runs are cheap.
 
 Assumes `products.sellerId` references `users._id` (used to compute each
 seller's top categories for their "sells: ..." embedding text). Adjust
@@ -21,7 +23,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db import get_db
-from app.embeddings import embed_texts, product_to_text, seller_to_text, text_hash
+from app.embeddings import embed_texts, product_to_text, seller_to_text, bit_to_text, text_hash
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("backfill")
@@ -123,15 +125,50 @@ def backfill_sellers(db):
     logger.info("Sellers: updated %d, skipped (unchanged) %d", updated, skipped)
 
 
-def main():
-    if not os.getenv("VOYAGE_API_KEY"):
-        logger.error("VOYAGE_API_KEY not set — aborting.")
-        sys.exit(1)
+def backfill_bits(db):
+    cursor = db.bits.find({}, {
+        "title": 1, "description": 1, "hashtags": 1, "embeddingHash": 1,
+    })
 
+    batch_docs, batch_texts = [], []
+    updated = skipped = 0
+
+    def flush():
+        nonlocal updated
+        if not batch_docs:
+            return
+        vectors = embed_texts(batch_texts, input_type="document")
+        for doc, text, vector in zip(batch_docs, batch_texts, vectors):
+            db.bits.update_one(
+                {"_id": doc["_id"]},
+                {"$set": {"embedding": vector, "embeddingHash": text_hash(text)}},
+            )
+        updated += len(batch_docs)
+        batch_docs.clear()
+        batch_texts.clear()
+
+    for doc in cursor:
+        text = bit_to_text(doc)
+        if not text.strip():
+            continue
+        if not _needs_embedding(doc, text):
+            skipped += 1
+            continue
+        batch_docs.append(doc)
+        batch_texts.append(text)
+        if len(batch_docs) >= BATCH_SIZE:
+            flush()
+    flush()
+
+    logger.info("Bits: updated %d, skipped (unchanged) %d", updated, skipped)
+
+
+def main():
     db = get_db()
     logger.info("Starting embedding backfill...")
     backfill_products(db)
     backfill_sellers(db)
+    backfill_bits(db)
     logger.info("Backfill complete.")
 
 

@@ -42,6 +42,25 @@ SELLER_FIELDS = {
     "sellerProfile.businessName": 1,
 }
 
+# Bits: excludes `comments` (other users' free-text content) and `userId`
+# is kept only because it's an opaque id, not personal data itself.
+BIT_FIELDS = {
+    "_id": 1,
+    "title": 1,
+    "description": 1,
+    "video": 1,
+    "thumbnail": 1,
+    "hashtags": 1,
+    "products": 1,
+    "userId": 1,
+    "likeCount": 1,
+    "viewCount": 1,
+    "shareCount": 1,
+    "isActive": 1,
+    "isTrending": 1,
+    "createdAt": 1,
+}
+
 
 def main():
     if not PROD_URI:
@@ -72,6 +91,13 @@ def main():
         staging_db.users.delete_many({})
         staging_db.users.insert_many(sellers)
     print(f"Sellers copied (whitelisted fields only): {len(sellers)}")
+
+    # Bits: whitelist only, excludes other users' comment text.
+    bits = list(prod.bits.find({}, BIT_FIELDS))
+    if bits:
+        staging_db.bits.delete_many({})
+        staging_db.bits.insert_many(bits)
+    print(f"Bits copied (whitelisted fields only): {len(bits)}")
 
     print("Done. Staging Atlas cluster is ready for the embedding backfill.")
 
