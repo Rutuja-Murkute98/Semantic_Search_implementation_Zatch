@@ -3,75 +3,129 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Semantic Search</title>
+<title>Zatch — Semantic Search</title>
 <style>
   :root {
-    --bg: #f7f8fb;
+    --bg: #f3f5fa;
+    --bg-grad-a: #eef1fb;
+    --bg-grad-b: #f7f2fb;
     --card: #ffffff;
-    --border: #e2e6ef;
+    --border: #e3e7f0;
     --text: #1c2130;
     --muted: #6b7280;
-    --accent: #2a5cad;
-    --accent-light: #eef2f9;
-    --semantic: #7a3fc4;
-    --semantic-bg: #f3ecfc;
-    --hybrid: #b5720a;
-    --hybrid-bg: #fdf3e3;
+    --accent: #4f46e5;
+    --accent-2: #7c3aed;
+    --accent-light: #eef0fd;
+    --semantic: #9333ea;
+    --semantic-bg: #f5ecfe;
+    --hybrid: #d97706;
+    --hybrid-bg: #fef3e2;
+    --shadow: 0 1px 2px rgba(23,25,44,0.04), 0 8px 24px rgba(23,25,44,0.06);
+    --shadow-hover: 0 4px 10px rgba(23,25,44,0.06), 0 16px 36px rgba(23,25,44,0.10);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #14161f;
-      --card: #1c2030;
-      --border: #2c3143;
-      --text: #e8eaf2;
+      --bg: #0f1117;
+      --bg-grad-a: #14131f;
+      --bg-grad-b: #131722;
+      --card: #1a1d2b;
+      --border: #2b2f42;
+      --text: #eceef5;
       --muted: #9aa1b4;
-      --accent: #6ea3f5;
-      --accent-light: #202a42;
-      --semantic: #b78cf0;
-      --semantic-bg: #2a1f3f;
+      --accent: #818cf8;
+      --accent-2: #a78bfa;
+      --accent-light: #232a44;
+      --semantic: #c98bf7;
+      --semantic-bg: #2a1f42;
       --hybrid: #f0b44a;
       --hybrid-bg: #3a2c11;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 24px rgba(0,0,0,0.35);
+      --shadow-hover: 0 4px 10px rgba(0,0,0,0.35), 0 16px 40px rgba(0,0,0,0.45);
     }
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
     font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
-    background: var(--bg);
     color: var(--text);
+    background:
+      radial-gradient(1100px 500px at 12% -10%, var(--bg-grad-a), transparent),
+      radial-gradient(900px 500px at 100% 0%, var(--bg-grad-b), transparent),
+      var(--bg);
+    min-height: 100vh;
   }
   .wrap {
-    max-width: 780px;
+    max-width: 820px;
     margin: 0 auto;
-    padding: 32px 20px 60px;
+    padding: 44px 20px 70px;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 4px;
+  }
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: white;
+    font-weight: 800;
+    font-size: 1.05rem;
+    box-shadow: var(--shadow);
   }
   h1 {
-    font-size: 1.5rem;
-    margin: 0 0 4px 0;
+    font-size: 1.7rem;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  h1 .accent-word {
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
   .subtitle {
     color: var(--muted);
-    font-size: 0.9rem;
-    margin: 0 0 22px 0;
+    font-size: 0.95rem;
+    margin: 6px 0 26px 0;
+  }
+  .search-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
   }
   .search-box {
     position: relative;
-    margin-bottom: 10px;
+    flex: 1;
+  }
+  .search-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    pointer-events: none;
   }
   input[type="text"] {
     width: 100%;
-    padding: 13px 44px 13px 16px;
-    font-size: 1rem;
+    padding: 14px 44px 14px 42px;
+    font-size: 1.02rem;
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: 14px;
     background: var(--card);
     color: var(--text);
+    box-shadow: var(--shadow);
     transition: border-color 0.15s, box-shadow 0.15s;
   }
   input[type="text"]:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-light);
+    box-shadow: 0 0 0 4px var(--accent-light), var(--shadow);
   }
   .clear-btn {
     position: absolute;
@@ -84,7 +138,7 @@
     border-radius: 50%;
     background: transparent;
     color: var(--muted);
-    font-size: 1.1rem;
+    font-size: 1.15rem;
     cursor: pointer;
     display: none;
     align-items: center;
@@ -108,47 +162,76 @@
   .spinner.visible { display: block; }
   @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
 
+  .search-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 22px;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: white;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+    transition: transform 0.12s, box-shadow 0.12s, opacity 0.12s;
+    white-space: nowrap;
+  }
+  .search-btn:hover { transform: translateY(-1px); box-shadow: var(--shadow-hover); }
+  .search-btn:active { transform: translateY(0); }
+  .search-btn:disabled { opacity: 0.6; cursor: default; transform: none; }
+
   .examples {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    margin: 10px 0 20px 0;
+    gap: 7px;
+    margin: 12px 0 22px 0;
   }
   .example-chip {
     font-size: 0.8rem;
-    padding: 5px 12px;
+    font-weight: 500;
+    padding: 6px 13px;
     border-radius: 999px;
-    background: var(--accent-light);
-    color: var(--accent);
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
     cursor: pointer;
-    border: none;
-    transition: transform 0.1s, opacity 0.1s;
+    transition: transform 0.1s, border-color 0.1s, color 0.1s;
   }
-  .example-chip:hover { opacity: 0.8; transform: translateY(-1px); }
+  .example-chip:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
   .example-chip:active { transform: translateY(0); }
 
   .tabs {
     display: flex;
     gap: 4px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 4px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow);
+    width: fit-content;
   }
   .tab {
-    padding: 9px 14px;
-    font-size: 0.88rem;
+    padding: 8px 15px;
+    font-size: 0.86rem;
     font-weight: 600;
     color: var(--muted);
     background: transparent;
     border: none;
-    border-bottom: 2px solid transparent;
+    border-radius: 9px;
     cursor: pointer;
     display: flex;
     align-items: center;
     gap: 6px;
-    transition: color 0.15s;
+    transition: background 0.15s, color 0.15s;
   }
   .tab:hover { color: var(--text); }
-  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab.active {
+    color: white;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  }
   .tab-count {
     font-size: 0.72rem;
     background: var(--accent-light);
@@ -158,66 +241,79 @@
     min-width: 18px;
     text-align: center;
   }
-  .tab.active .tab-count { background: var(--accent); color: white; }
+  .tab.active .tab-count { background: rgba(255,255,255,0.25); color: white; }
 
   .status-line {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 10px;
+    margin-bottom: 18px;
     font-size: 0.85rem;
     color: var(--muted);
     min-height: 20px;
     flex-wrap: wrap;
   }
   .mode-badge {
-    font-weight: 600;
-    padding: 2px 9px;
+    font-weight: 700;
+    padding: 3px 10px;
     border-radius: 999px;
-    font-size: 0.75rem;
+    font-size: 0.74rem;
   }
   .mode-hybrid { background: var(--hybrid-bg); color: var(--hybrid); }
   .mode-keyword { background: var(--accent-light); color: var(--accent); }
 
-  section { margin-bottom: 26px; }
+  section { margin-bottom: 28px; }
   section h2 {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
+    letter-spacing: 0.05em;
     color: var(--muted);
     margin: 0 0 10px 0;
+    font-weight: 700;
   }
   .card {
     background: var(--card);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-    margin-bottom: 8px;
+    border-radius: 14px;
+    padding: 15px 18px;
+    margin-bottom: 9px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
-    cursor: default;
-    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
-    animation: fadeSlideIn 0.28s ease both;
+    gap: 14px;
+    box-shadow: var(--shadow);
+    transition: transform 0.14s, box-shadow 0.14s, border-color 0.14s;
+    animation: fadeSlideIn 0.3s ease both;
   }
   .card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-hover);
     border-color: var(--accent);
   }
   @keyframes fadeSlideIn {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
   }
+  .card-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: var(--accent-light);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .card-body { display: flex; align-items: center; gap: 13px; min-width: 0; }
   .card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-sub { font-size: 0.85rem; color: var(--muted); }
   .badges { display: flex; gap: 6px; flex-shrink: 0; }
   .badge {
     font-size: 0.72rem;
-    font-weight: 600;
-    padding: 3px 8px;
+    font-weight: 700;
+    padding: 3px 9px;
     border-radius: 999px;
     white-space: nowrap;
   }
@@ -227,35 +323,48 @@
   .empty, .error {
     color: var(--muted);
     font-size: 0.9rem;
-    padding: 20px 0;
+    padding: 22px 0;
     text-align: center;
   }
-  .error { color: #c0392b; }
+  .error { color: #dc2626; }
   .hint {
     color: var(--muted);
-    font-size: 0.9rem;
+    font-size: 0.95rem;
     text-align: center;
-    padding: 30px 0;
+    padding: 50px 20px;
+    background: var(--card);
+    border: 1px dashed var(--border);
+    border-radius: 14px;
   }
   .legend {
     font-size: 0.78rem;
     color: var(--muted);
-    margin-top: 36px;
+    margin-top: 38px;
     padding-top: 16px;
     border-top: 1px solid var(--border);
-    line-height: 1.6;
+    line-height: 1.7;
   }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>Semantic Search</h1>
-  <p class="subtitle">Type a natural, descriptive search — not just exact product names — and results appear as you type.</p>
+  <div class="brand">
+    <span class="brand-mark">Z</span>
+    <h1>Zatch — <span class="accent-word">Semantic Search</span></h1>
+  </div>
+  <p class="subtitle">Type a natural, descriptive search — not just exact product names — and see keyword, semantic, and hybrid matches.</p>
 
-  <div class="search-box">
-    <input type="text" id="query" placeholder="e.g. wedding outfit, gift for wife, office wear..." autocomplete="off" autofocus>
-    <div class="spinner" id="spinner"></div>
-    <button type="button" class="clear-btn" id="clear-btn" aria-label="Clear">&times;</button>
+  <div class="search-row">
+    <div class="search-box">
+      <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      <input type="text" id="query" placeholder="e.g. wedding outfit, gift for wife, office wear..." autocomplete="off" autofocus>
+      <div class="spinner" id="spinner"></div>
+      <button type="button" class="clear-btn" id="clear-btn" aria-label="Clear">&times;</button>
+    </div>
+    <button type="button" class="search-btn" id="search-btn">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+      Search
+    </button>
   </div>
 
   <div class="examples" id="examples"></div>
@@ -270,7 +379,7 @@
   <div class="status-line" id="status-line"></div>
 
   <div id="results">
-    <div class="hint">Start typing above to search.</div>
+    <div class="hint">Start typing above, or press Search, to explore the catalog.</div>
   </div>
 
   <div class="legend">
@@ -284,9 +393,14 @@
   const EXAMPLES = ["wedding outfit", "gift for wife", "office wear", "shop that sells sarees", "ethnic dress for diwali"];
   const DEBOUNCE_MS = 350;
 
+  const ICON_PRODUCT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 7.3 12 12l-8.5-4.7"/><path d="M3.5 7.3 12 2l8.5 5.3v9.4L12 22l-8.5-5.3z"/><path d="M12 12v10"/></svg>';
+  const ICON_SELLER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 1 0-16 0"/><circle cx="12" cy="8" r="4"/></svg>';
+  const ICON_BIT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+
   const input = document.getElementById("query");
   const spinner = document.getElementById("spinner");
   const clearBtn = document.getElementById("clear-btn");
+  const searchBtn = document.getElementById("search-btn");
   const statusLine = document.getElementById("status-line");
   const resultsEl = document.getElementById("results");
   const examplesEl = document.getElementById("examples");
@@ -334,10 +448,13 @@
     const score = (p.vectorScore !== undefined && p.vectorScore !== null)
       ? '<span class="card-sub">similarity: ' + p.vectorScore + '</span>' : "";
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
-        '<div class="card-main">' +
-          '<span class="card-name">' + escapeHtml(p.name) + '</span>' +
-          '<span class="card-sub">Rs ' + (p.price !== undefined ? p.price : "-") + '</span>' +
-          score +
+        '<div class="card-body">' +
+          '<div class="card-icon">' + ICON_PRODUCT + '</div>' +
+          '<div class="card-main">' +
+            '<span class="card-name">' + escapeHtml(p.name) + '</span>' +
+            '<span class="card-sub">Rs ' + (p.price !== undefined ? p.price : "-") + '</span>' +
+            score +
+          '</div>' +
         '</div>' +
         '<div class="badges"><span class="badge ' + badgeClass(p.matchType) + '">' + (p.matchType || "keyword") + '</span></div>' +
       '</div>';
@@ -345,9 +462,12 @@
 
   function sellerCard(s, i) {
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
-        '<div class="card-main">' +
-          '<span class="card-name">' + escapeHtml(s.username) + '</span>' +
-          '<span class="card-sub">' + escapeHtml(s.shopName) + '</span>' +
+        '<div class="card-body">' +
+          '<div class="card-icon">' + ICON_SELLER + '</div>' +
+          '<div class="card-main">' +
+            '<span class="card-name">' + escapeHtml(s.username) + '</span>' +
+            '<span class="card-sub">' + escapeHtml(s.shopName) + '</span>' +
+          '</div>' +
         '</div>' +
         '<div class="badges"><span class="badge ' + badgeClass(s.matchType) + '">' + (s.matchType || "keyword") + '</span></div>' +
       '</div>';
@@ -355,9 +475,12 @@
 
   function bitCard(b, i) {
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
-        '<div class="card-main">' +
-          '<span class="card-name">' + escapeHtml(b.title) + '</span>' +
-          '<span class="card-sub">' + (b.viewCount || 0) + ' views &middot; ' + (b.likeCount || 0) + ' likes</span>' +
+        '<div class="card-body">' +
+          '<div class="card-icon">' + ICON_BIT + '</div>' +
+          '<div class="card-main">' +
+            '<span class="card-name">' + escapeHtml(b.title) + '</span>' +
+            '<span class="card-sub">' + (b.viewCount || 0) + ' views &middot; ' + (b.likeCount || 0) + ' likes</span>' +
+          '</div>' +
         '</div>' +
         '<div class="badges"><span class="badge ' + badgeClass(b.matchType) + '">' + (b.matchType || "keyword") + '</span></div>' +
       '</div>';
@@ -392,7 +515,7 @@
 
   async function runSearch(query) {
     if (!query || !query.trim()) {
-      resultsEl.innerHTML = '<div class="hint">Start typing above to search.</div>';
+      resultsEl.innerHTML = '<div class="hint">Start typing above, or press Search, to explore the catalog.</div>';
       statusLine.innerHTML = "";
       lastData = null;
       ["all", "products", "sellers", "bits"].forEach(k => document.getElementById("count-" + k).textContent = "0");
@@ -400,6 +523,7 @@
     }
     const seq = ++requestSeq;
     spinner.classList.add("visible");
+    searchBtn.disabled = true;
     const startedAt = performance.now();
     try {
       const res = await fetch("/search?query=" + encodeURIComponent(query));
@@ -419,7 +543,10 @@
       statusLine.innerHTML = '<span class="error">Request failed: ' + escapeHtml(String(err)) + '</span>';
       resultsEl.innerHTML = "";
     } finally {
-      if (seq === requestSeq) spinner.classList.remove("visible");
+      if (seq === requestSeq) {
+        spinner.classList.remove("visible");
+        searchBtn.disabled = false;
+      }
     }
   }
 
@@ -440,6 +567,11 @@
       clearBtn.classList.remove("visible");
       runSearch("");
     }
+  });
+
+  searchBtn.addEventListener("click", function () {
+    clearTimeout(debounceTimer);
+    runSearch(input.value);
   });
 
   clearBtn.addEventListener("click", function () {
