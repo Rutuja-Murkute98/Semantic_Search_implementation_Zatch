@@ -93,6 +93,9 @@
     color: var(--muted);
     font-size: 0.95rem;
     margin: 6px 0 26px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .search-row {
     display: flex;
@@ -305,6 +308,10 @@
     justify-content: center;
     flex-shrink: 0;
   }
+  .card-icon.type-product { background: var(--accent-light); color: var(--accent); }
+  .card-icon.type-seller { background: var(--hybrid-bg); color: var(--hybrid); }
+  .card-icon.type-bit { background: var(--semantic-bg); color: var(--semantic); }
+  .type-letter { font-weight: 800; font-size: 0.95rem; }
   .card-body { display: flex; align-items: center; gap: 13px; min-width: 0; }
   .card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
   .card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -352,7 +359,7 @@
     <span class="brand-mark">Z</span>
     <h1>Zatch — <span class="accent-word">Semantic Search</span></h1>
   </div>
-  <p class="subtitle">Type a natural, descriptive search — not just exact product names — and see keyword, semantic, and hybrid matches.</p>
+  <p class="subtitle">Type naturally, then press Search — see keyword, semantic, and hybrid matches.</p>
 
   <div class="search-row">
     <div class="search-box">
@@ -391,11 +398,10 @@
 
 <script>
   const EXAMPLES = ["wedding outfit", "gift for wife", "office wear", "shop that sells sarees", "ethnic dress for diwali"];
-  const DEBOUNCE_MS = 350;
 
-  const ICON_PRODUCT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 7.3 12 12l-8.5-4.7"/><path d="M3.5 7.3 12 2l8.5 5.3v9.4L12 22l-8.5-5.3z"/><path d="M12 12v10"/></svg>';
-  const ICON_SELLER = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 1 0-16 0"/><circle cx="12" cy="8" r="4"/></svg>';
-  const ICON_BIT = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>';
+  const ICON_PRODUCT = '<span class="type-letter">P</span>';
+  const ICON_SELLER = '<span class="type-letter">S</span>';
+  const ICON_BIT = '<span class="type-letter">B</span>';
 
   const input = document.getElementById("query");
   const spinner = document.getElementById("spinner");
@@ -408,7 +414,6 @@
 
   let lastData = null;
   let activeTab = "all";
-  let debounceTimer = null;
   let requestSeq = 0;
 
   EXAMPLES.forEach(function (ex) {
@@ -449,7 +454,7 @@
       ? '<span class="card-sub">similarity: ' + p.vectorScore + '</span>' : "";
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
         '<div class="card-body">' +
-          '<div class="card-icon">' + ICON_PRODUCT + '</div>' +
+          '<div class="card-icon type-product">' + ICON_PRODUCT + '</div>' +
           '<div class="card-main">' +
             '<span class="card-name">' + escapeHtml(p.name) + '</span>' +
             '<span class="card-sub">Rs ' + (p.price !== undefined ? p.price : "-") + '</span>' +
@@ -463,7 +468,7 @@
   function sellerCard(s, i) {
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
         '<div class="card-body">' +
-          '<div class="card-icon">' + ICON_SELLER + '</div>' +
+          '<div class="card-icon type-seller">' + ICON_SELLER + '</div>' +
           '<div class="card-main">' +
             '<span class="card-name">' + escapeHtml(s.username) + '</span>' +
             '<span class="card-sub">' + escapeHtml(s.shopName) + '</span>' +
@@ -476,7 +481,7 @@
   function bitCard(b, i) {
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
         '<div class="card-body">' +
-          '<div class="card-icon">' + ICON_BIT + '</div>' +
+          '<div class="card-icon type-bit">' + ICON_BIT + '</div>' +
           '<div class="card-main">' +
             '<span class="card-name">' + escapeHtml(b.title) + '</span>' +
             '<span class="card-sub">' + (b.viewCount || 0) + ' views &middot; ' + (b.likeCount || 0) + ' likes</span>' +
@@ -552,15 +557,10 @@
 
   input.addEventListener("input", function () {
     clearBtn.classList.toggle("visible", input.value.length > 0);
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(function () {
-      runSearch(input.value);
-    }, DEBOUNCE_MS);
   });
 
   input.addEventListener("keydown", function (e) {
     if (e.key === "Enter") {
-      clearTimeout(debounceTimer);
       runSearch(input.value);
     } else if (e.key === "Escape") {
       input.value = "";
@@ -570,7 +570,6 @@
   });
 
   searchBtn.addEventListener("click", function () {
-    clearTimeout(debounceTimer);
     runSearch(input.value);
   });
 
