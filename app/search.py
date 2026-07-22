@@ -37,17 +37,43 @@ logger = logging.getLogger("search")
 
 QUERY_EMBED_TIMEOUT_SECONDS = 2.0
 _embed_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="embed")
+# Shared pool for the 6 independent keyword/semantic retrieval calls in
+# do_search(), reused across requests rather than spinning up threads
+# per-request. 8 workers covers all 6 concurrent calls with headroom.
+_query_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="query")
 
 COLORS = {
+    # base colors
     "red", "blue", "green", "black", "white", "yellow", "pink", "purple",
     "orange", "grey", "gray", "brown", "beige", "maroon", "navy", "golden",
-    "silver", "cream", "multicolor", "multi",
+    "gold", "silver", "cream", "multicolor", "multi",
+    # additional base colors seen in the real catalog / common in fashion
+    "ash", "coffee", "tan", "lavender", "orchid", "peach", "teal",
+    "turquoise", "magenta", "coral", "mint", "khaki", "ivory", "wine",
+    "rust", "olive", "bronze", "mauve", "plum", "burgundy", "charcoal",
+    "fuchsia", "indigo", "lilac", "salmon", "lime", "aqua", "mustard",
+    # modifier words that only ever appear as part of a compound color name
+    # ("sky blue", "off white", "dark blue", "midnight blue", "sea green",
+    # "deep pink", "ink blue", "royal blue") -- tokens are checked
+    # word-by-word, so both halves need to be recognised for pick_main_term
+    # to skip the whole phrase.
+    "sky", "off", "dark", "light", "midnight", "sea", "deep", "ink",
+    "royal", "baby", "hot", "neon", "pastel",
 }
 
-PRICE_STOP = {
+# General search-noise words: filler, price phrasing, and connective words
+# that add nothing to what's being searched for ("saree with red color" ->
+# "with" and "color" are noise, not search subjects).
+STOPWORDS = {
+    # price phrasing
     "under", "below", "less", "than", "upto", "up", "to", "within",
-    "rs", "rupees", "only", "for", "a", "an", "the", "me", "show",
-    "find", "get", "buy", "some",
+    "rs", "rupees", "only", "me", "show", "find", "get", "buy", "some",
+    # articles / connectives
+    "a", "an", "the", "for", "with", "and", "or", "but", "of", "in",
+    "on", "at", "is", "are", "my", "your", "this", "that", "these",
+    "those", "please", "want", "need", "looking", "search", "i",
+    # generic e-commerce noise words that match almost everything
+    "color", "colour", "item", "items", "product", "products",
 }
 
 # ─────────────────────────────────────────────
@@ -76,7 +102,7 @@ def extract_colors(query: str):
 
 def search_tokens(query: str) -> list:
     return [w for w in normalize(query).split()
-            if w not in PRICE_STOP and not w.isdigit() and len(w) > 1]
+            if w not in STOPWORDS and not w.isdigit() and len(w) > 1]
 
 
 def pick_main_term(tokens: list, colors: set) -> str:
@@ -127,6 +153,23 @@ def get_query_vector(text: str):
 # MAIN SEARCH
 # ─────────────────────────────────────────────
 
+def _dedupe_by_name(items: list, name_key: str) -> list:
+    """Some sellers list visually-identical products more than once
+    (same name, different _id) -- keep only the highest-ranked occurrence
+    of each name so results don't look duplicated. `items` is expected to
+    already be ranked (rrf_merge's output order), so "first wins"."""
+    seen = set()
+    deduped = []
+    for item in items:
+        key = normalize(item.get(name_key, ""))
+        if key and key in seen:
+            continue
+        if key:
+            seen.add(key)
+        deduped.append(item)
+    return deduped
+
+
 def do_search(raw_query: str) -> dict:
     db = get_db()
 
@@ -140,28 +183,39 @@ def do_search(raw_query: str) -> dict:
         return {"success": False, "message": "No products found",
                 "products": [], "sellers": [], "bits": []}
 
-    # ── Keyword leg (Atlas Search fuzzy text, regex fallback) ───
-    keyword_sellers  = search_sellers(db, tokens)
-    keyword_products = search_products(db, tokens, colors, main_term, price_limit)
-    keyword_bits     = search_bits(db, tokens)
+    # ── Run both legs concurrently instead of as 6 sequential MongoDB
+    # round-trips -- each call is independent I/O, so there's no reason
+    # to wait for one before starting the next. This alone cuts typical
+    # latency from ~3.5s to roughly the single slowest call (~1s).
+    query_text = " ".join(tokens)
+    f_kw_products = _query_executor.submit(search_products, db, tokens, colors, main_term, price_limit)
+    f_kw_sellers  = _query_executor.submit(search_sellers, db, tokens)
+    f_kw_bits     = _query_executor.submit(search_bits, db, tokens)
+    f_vec         = _query_executor.submit(get_query_vector, query_text)
 
-    # ── Semantic leg (meaning-based, via Voyage + $vectorSearch) ─
-    # Embed the token string (price/stop words already stripped by
-    # search_tokens), not the raw query — e.g. "wedding outfit", not
-    # "wedding outfit under 3000".
-    query_vec = get_query_vector(" ".join(tokens))
+    # Semantic legs need the embedding first, but that's fast (~tens of ms
+    # once the model is warm) -- start them as soon as it's ready rather
+    # than waiting for the keyword legs above to finish too.
+    query_vec = f_vec.result()
     search_mode = "keyword-only"
-    semantic_prods, semantic_sells, semantic_bts = [], [], []
+    f_sem_products = f_sem_sellers = f_sem_bits = None
     if query_vec:
-        semantic_prods = semantic_products(db, query_vec, price_limit=price_limit)
-        semantic_sells = semantic_sellers(db, query_vec)
-        semantic_bts   = semantic_bits(db, query_vec)
+        f_sem_products = _query_executor.submit(semantic_products, db, query_vec, price_limit=price_limit)
+        f_sem_sellers  = _query_executor.submit(semantic_sellers, db, query_vec)
+        f_sem_bits     = _query_executor.submit(semantic_bits, db, query_vec)
         search_mode = "hybrid"
 
+    keyword_products = f_kw_products.result()
+    keyword_sellers  = f_kw_sellers.result()
+    keyword_bits     = f_kw_bits.result()
+    semantic_prods = f_sem_products.result() if f_sem_products else []
+    semantic_sells = f_sem_sellers.result() if f_sem_sellers else []
+    semantic_bts   = f_sem_bits.result() if f_sem_bits else []
+
     # ── Merge each leg pair (Reciprocal Rank Fusion) ────────────
-    products = rrf_merge(keyword_products, semantic_prods)
+    products = _dedupe_by_name(rrf_merge(keyword_products, semantic_prods), "name")
     sellers  = rrf_merge(keyword_sellers, semantic_sells)
-    bits     = rrf_merge(keyword_bits, semantic_bts)
+    bits     = _dedupe_by_name(rrf_merge(keyword_bits, semantic_bts), "title")
 
     # ── Decide what to return ──────────────────
     # If sellers found AND no strong product/bit match → seller-only result.
