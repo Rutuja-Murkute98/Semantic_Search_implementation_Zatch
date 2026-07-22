@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Zatch Search — Semantic Search Demo</title>
+<title>Semantic Search</title>
 <style>
   :root {
     --bg: #f7f8fb;
@@ -13,8 +13,6 @@
     --muted: #6b7280;
     --accent: #2a5cad;
     --accent-light: #eef2f9;
-    --good: #1a7a3c;
-    --good-bg: #eaf7ee;
     --semantic: #7a3fc4;
     --semantic-bg: #f3ecfc;
     --hybrid: #b5720a;
@@ -29,8 +27,6 @@
       --muted: #9aa1b4;
       --accent: #6ea3f5;
       --accent-light: #202a42;
-      --good: #4fce7c;
-      --good-bg: #16321f;
       --semantic: #b78cf0;
       --semantic-bg: #2a1f3f;
       --hybrid: #f0b44a;
@@ -45,63 +41,125 @@
     color: var(--text);
   }
   .wrap {
-    max-width: 760px;
+    max-width: 780px;
     margin: 0 auto;
     padding: 32px 20px 60px;
   }
   h1 {
-    font-size: 1.4rem;
+    font-size: 1.5rem;
     margin: 0 0 4px 0;
   }
   .subtitle {
     color: var(--muted);
     font-size: 0.9rem;
-    margin: 0 0 24px 0;
+    margin: 0 0 22px 0;
   }
-  form {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
+  .search-box {
+    position: relative;
+    margin-bottom: 10px;
   }
   input[type="text"] {
-    flex: 1;
-    padding: 12px 14px;
+    width: 100%;
+    padding: 13px 44px 13px 16px;
     font-size: 1rem;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--card);
     color: var(--text);
+    transition: border-color 0.15s, box-shadow 0.15s;
   }
   input[type="text"]:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: -1px;
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-light);
   }
-  button {
-    padding: 12px 20px;
-    font-size: 1rem;
+  .clear-btn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
     border: none;
-    border-radius: 8px;
-    background: var(--accent);
-    color: white;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--muted);
+    font-size: 1.1rem;
     cursor: pointer;
+    display: none;
+    align-items: center;
+    justify-content: center;
   }
-  button:hover { opacity: 0.9; }
-  button:disabled { opacity: 0.5; cursor: default; }
+  .clear-btn:hover { background: var(--accent-light); }
+  .clear-btn.visible { display: flex; }
+  .spinner {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    display: none;
+    animation: spin 0.7s linear infinite;
+  }
+  .spinner.visible { display: block; }
+  @keyframes spin { to { transform: translateY(-50%) rotate(360deg); } }
+
   .examples {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin: 10px 0 28px 0;
+    margin: 10px 0 20px 0;
   }
   .example-chip {
     font-size: 0.8rem;
-    padding: 5px 10px;
+    padding: 5px 12px;
     border-radius: 999px;
     background: var(--accent-light);
     color: var(--accent);
     cursor: pointer;
     border: none;
+    transition: transform 0.1s, opacity 0.1s;
   }
+  .example-chip:hover { opacity: 0.8; transform: translateY(-1px); }
+  .example-chip:active { transform: translateY(0); }
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  .tab {
+    padding: 9px 14px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--muted);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: color 0.15s;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-count {
+    font-size: 0.72rem;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 1px 7px;
+    border-radius: 999px;
+    min-width: 18px;
+    text-align: center;
+  }
+  .tab.active .tab-count { background: var(--accent); color: white; }
+
   .status-line {
     display: flex;
     align-items: center;
@@ -110,18 +168,20 @@
     font-size: 0.85rem;
     color: var(--muted);
     min-height: 20px;
+    flex-wrap: wrap;
   }
   .mode-badge {
     font-weight: 600;
-    padding: 2px 8px;
+    padding: 2px 9px;
     border-radius: 999px;
     font-size: 0.75rem;
   }
   .mode-hybrid { background: var(--hybrid-bg); color: var(--hybrid); }
   .mode-keyword { background: var(--accent-light); color: var(--accent); }
-  section { margin-bottom: 28px; }
+
+  section { margin-bottom: 26px; }
   section h2 {
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     text-transform: uppercase;
     letter-spacing: 0.03em;
     color: var(--muted);
@@ -137,9 +197,21 @@
     justify-content: space-between;
     align-items: center;
     gap: 12px;
+    cursor: default;
+    transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+    animation: fadeSlideIn 0.28s ease both;
   }
-  .card-main { display: flex; flex-direction: column; gap: 2px; }
-  .card-name { font-weight: 600; }
+  .card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+    border-color: var(--accent);
+  }
+  @keyframes fadeSlideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .card-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .card-sub { font-size: 0.85rem; color: var(--muted); }
   .badges { display: flex; gap: 6px; flex-shrink: 0; }
   .badge {
@@ -155,13 +227,20 @@
   .empty, .error {
     color: var(--muted);
     font-size: 0.9rem;
-    padding: 16px 0;
+    padding: 20px 0;
+    text-align: center;
   }
   .error { color: #c0392b; }
+  .hint {
+    color: var(--muted);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 30px 0;
+  }
   .legend {
     font-size: 0.78rem;
     color: var(--muted);
-    margin-top: 40px;
+    margin-top: 36px;
     padding-top: 16px;
     border-top: 1px solid var(--border);
     line-height: 1.6;
@@ -170,27 +249,29 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Zatch Search — Semantic Search Demo</h1>
-  <p class="subtitle">Type a natural, descriptive search — not just exact product names — to see keyword and semantic results side by side.</p>
+  <h1>Semantic Search</h1>
+  <p class="subtitle">Type a natural, descriptive search — not just exact product names — and results appear as you type.</p>
 
-  <form id="search-form">
-    <input type="text" id="query" placeholder="e.g. wedding outfit, gift for wife, office wear..." autocomplete="off">
-    <button type="submit" id="search-btn">Search</button>
-  </form>
+  <div class="search-box">
+    <input type="text" id="query" placeholder="e.g. wedding outfit, gift for wife, office wear..." autocomplete="off" autofocus>
+    <div class="spinner" id="spinner"></div>
+    <button type="button" class="clear-btn" id="clear-btn" aria-label="Clear">&times;</button>
+  </div>
 
   <div class="examples" id="examples"></div>
 
+  <div class="tabs" id="tabs">
+    <button class="tab active" data-tab="all">All <span class="tab-count" id="count-all">0</span></button>
+    <button class="tab" data-tab="products">Products <span class="tab-count" id="count-products">0</span></button>
+    <button class="tab" data-tab="sellers">Sellers <span class="tab-count" id="count-sellers">0</span></button>
+    <button class="tab" data-tab="bits">Bits <span class="tab-count" id="count-bits">0</span></button>
+  </div>
+
   <div class="status-line" id="status-line"></div>
 
-  <section>
-    <h2>Products</h2>
-    <div id="products"></div>
-  </section>
-
-  <section>
-    <h2>Sellers</h2>
-    <div id="sellers"></div>
-  </section>
+  <div id="results">
+    <div class="hint">Start typing above to search.</div>
+  </div>
 
   <div class="legend">
     <strong>keyword</strong> = matched by exact/partial word &nbsp;·&nbsp;
@@ -201,14 +282,20 @@
 
 <script>
   const EXAMPLES = ["wedding outfit", "gift for wife", "office wear", "shop that sells sarees", "ethnic dress for diwali"];
+  const DEBOUNCE_MS = 350;
 
-  const form = document.getElementById("search-form");
   const input = document.getElementById("query");
-  const btn = document.getElementById("search-btn");
+  const spinner = document.getElementById("spinner");
+  const clearBtn = document.getElementById("clear-btn");
   const statusLine = document.getElementById("status-line");
-  const productsEl = document.getElementById("products");
-  const sellersEl = document.getElementById("sellers");
+  const resultsEl = document.getElementById("results");
   const examplesEl = document.getElementById("examples");
+  const tabsEl = document.getElementById("tabs");
+
+  let lastData = null;
+  let activeTab = "all";
+  let debounceTimer = null;
+  let requestSeq = 0;
 
   EXAMPLES.forEach(function (ex) {
     const chip = document.createElement("button");
@@ -217,9 +304,18 @@
     chip.textContent = ex;
     chip.addEventListener("click", function () {
       input.value = ex;
+      clearBtn.classList.add("visible");
       runSearch(ex);
     });
     examplesEl.appendChild(chip);
+  });
+
+  tabsEl.addEventListener("click", function (e) {
+    const btn = e.target.closest(".tab");
+    if (!btn) return;
+    activeTab = btn.dataset.tab;
+    [...tabsEl.querySelectorAll(".tab")].forEach(t => t.classList.toggle("active", t === btn));
+    if (lastData) render(lastData);
   });
 
   function badgeClass(matchType) {
@@ -228,79 +324,129 @@
     return "badge-keyword";
   }
 
-  function renderProducts(products) {
-    productsEl.innerHTML = "";
-    if (!products || products.length === 0) {
-      productsEl.innerHTML = '<div class="empty">No products found.</div>';
-      return;
-    }
-    products.forEach(function (p) {
-      const card = document.createElement("div");
-      card.className = "card";
-      const score = (p.vectorScore !== undefined && p.vectorScore !== null)
-        ? '<span class="card-sub">similarity: ' + p.vectorScore + '</span>' : "";
-      card.innerHTML =
-        '<div class="card-main">' +
-          '<span class="card-name">' + escapeHtml(p.name || "") + '</span>' +
-          '<span class="card-sub">Rs ' + (p.price !== undefined ? p.price : "-") + '</span>' +
-          score +
-        '</div>' +
-        '<div class="badges"><span class="badge ' + badgeClass(p.matchType) + '">' + (p.matchType || "keyword") + '</span></div>';
-      productsEl.appendChild(card);
-    });
-  }
-
-  function renderSellers(sellers) {
-    sellersEl.innerHTML = "";
-    if (!sellers || sellers.length === 0) {
-      sellersEl.innerHTML = '<div class="empty">No sellers found.</div>';
-      return;
-    }
-    sellers.forEach(function (s) {
-      const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML =
-        '<div class="card-main">' +
-          '<span class="card-name">' + escapeHtml(s.username || "") + '</span>' +
-          '<span class="card-sub">' + escapeHtml(s.shopName || "") + '</span>' +
-        '</div>' +
-        '<div class="badges"><span class="badge ' + badgeClass(s.matchType) + '">' + (s.matchType || "keyword") + '</span></div>';
-      sellersEl.appendChild(card);
-    });
-  }
-
   function escapeHtml(str) {
     const div = document.createElement("div");
-    div.textContent = str;
+    div.textContent = str || "";
     return div.innerHTML;
   }
 
+  function productCard(p, i) {
+    const score = (p.vectorScore !== undefined && p.vectorScore !== null)
+      ? '<span class="card-sub">similarity: ' + p.vectorScore + '</span>' : "";
+    return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
+        '<div class="card-main">' +
+          '<span class="card-name">' + escapeHtml(p.name) + '</span>' +
+          '<span class="card-sub">Rs ' + (p.price !== undefined ? p.price : "-") + '</span>' +
+          score +
+        '</div>' +
+        '<div class="badges"><span class="badge ' + badgeClass(p.matchType) + '">' + (p.matchType || "keyword") + '</span></div>' +
+      '</div>';
+  }
+
+  function sellerCard(s, i) {
+    return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
+        '<div class="card-main">' +
+          '<span class="card-name">' + escapeHtml(s.username) + '</span>' +
+          '<span class="card-sub">' + escapeHtml(s.shopName) + '</span>' +
+        '</div>' +
+        '<div class="badges"><span class="badge ' + badgeClass(s.matchType) + '">' + (s.matchType || "keyword") + '</span></div>' +
+      '</div>';
+  }
+
+  function bitCard(b, i) {
+    return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
+        '<div class="card-main">' +
+          '<span class="card-name">' + escapeHtml(b.title) + '</span>' +
+          '<span class="card-sub">' + (b.viewCount || 0) + ' views &middot; ' + (b.likeCount || 0) + ' likes</span>' +
+        '</div>' +
+        '<div class="badges"><span class="badge ' + badgeClass(b.matchType) + '">' + (b.matchType || "keyword") + '</span></div>' +
+      '</div>';
+  }
+
+  function section(title, items, cardFn) {
+    if (!items || items.length === 0) return "";
+    return '<section><h2>' + title + ' (' + items.length + ')</h2>' +
+      items.map(cardFn).join("") + '</section>';
+  }
+
+  function render(data) {
+    const products = data.products || [];
+    const sellers = data.sellers || [];
+    const bits = data.bits || [];
+
+    document.getElementById("count-all").textContent = products.length + sellers.length + bits.length;
+    document.getElementById("count-products").textContent = products.length;
+    document.getElementById("count-sellers").textContent = sellers.length;
+    document.getElementById("count-bits").textContent = bits.length;
+
+    let html = "";
+    if (activeTab === "all" || activeTab === "products") html += section("Products", products, productCard);
+    if (activeTab === "all" || activeTab === "sellers") html += section("Sellers", sellers, sellerCard);
+    if (activeTab === "all" || activeTab === "bits") html += section("Bits", bits, bitCard);
+
+    if (!html) {
+      html = '<div class="empty">No results in this category.</div>';
+    }
+    resultsEl.innerHTML = html;
+  }
+
   async function runSearch(query) {
-    if (!query || !query.trim()) return;
-    btn.disabled = true;
-    statusLine.textContent = "Searching...";
-    productsEl.innerHTML = "";
-    sellersEl.innerHTML = "";
+    if (!query || !query.trim()) {
+      resultsEl.innerHTML = '<div class="hint">Start typing above to search.</div>';
+      statusLine.innerHTML = "";
+      lastData = null;
+      ["all", "products", "sellers", "bits"].forEach(k => document.getElementById("count-" + k).textContent = "0");
+      return;
+    }
+    const seq = ++requestSeq;
+    spinner.classList.add("visible");
+    const startedAt = performance.now();
     try {
       const res = await fetch("/search?query=" + encodeURIComponent(query));
       const data = await res.json();
+      if (seq !== requestSeq) return; // a newer request already superseded this one
+      const elapsed = Math.round(performance.now() - startedAt);
       const mode = data.searchMode || "keyword-only";
       const modeClass = mode === "hybrid" ? "mode-hybrid" : "mode-keyword";
       statusLine.innerHTML =
         '<span class="mode-badge ' + modeClass + '">' + mode + '</span>' +
-        '<span>corrected query: "' + escapeHtml(data.correctedQuery || query) + '"</span>';
-      renderProducts(data.products);
-      renderSellers(data.sellers);
+        '<span>corrected: "' + escapeHtml(data.correctedQuery || query) + '"</span>' +
+        '<span>&middot; ' + elapsed + 'ms</span>';
+      lastData = data;
+      render(data);
     } catch (err) {
+      if (seq !== requestSeq) return;
       statusLine.innerHTML = '<span class="error">Request failed: ' + escapeHtml(String(err)) + '</span>';
+      resultsEl.innerHTML = "";
     } finally {
-      btn.disabled = false;
+      if (seq === requestSeq) spinner.classList.remove("visible");
     }
   }
 
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    runSearch(input.value);
+  input.addEventListener("input", function () {
+    clearBtn.classList.toggle("visible", input.value.length > 0);
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(function () {
+      runSearch(input.value);
+    }, DEBOUNCE_MS);
+  });
+
+  input.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      clearTimeout(debounceTimer);
+      runSearch(input.value);
+    } else if (e.key === "Escape") {
+      input.value = "";
+      clearBtn.classList.remove("visible");
+      runSearch("");
+    }
+  });
+
+  clearBtn.addEventListener("click", function () {
+    input.value = "";
+    clearBtn.classList.remove("visible");
+    input.focus();
+    runSearch("");
   });
 </script>
 </body>
