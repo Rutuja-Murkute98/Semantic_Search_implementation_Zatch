@@ -8,6 +8,7 @@ on Atlas, etc). This means semantic search degrades gracefully instead of
 breaking the API before the Atlas indexes even exist.
 """
 import logging
+import time
 
 from bson import ObjectId
 
@@ -15,6 +16,27 @@ logger = logging.getLogger("vector_search")
 
 SIM_CUTOFF = 0.6              # drop matches below this similarity (avoid nonsense)
 FALLBACK_SCAN_LIMIT = 20000    # cap for the Plan-B python-side scan
+
+# Cache for the Plan-B fallback fetch (all embedded docs in a collection).
+# Fetching every seller/bit document over the network on every single
+# search was the dominant cost when there's no Atlas vector index for
+# that collection -- profiled at 2-7s for ~280 small documents on an
+# Atlas M0 cluster, almost entirely network round-trip time, not the
+# cosine-similarity computation itself. Embeddings only change when the
+# backfill cron runs (every 6h), so a short TTL cache removes that cost
+# from the request path entirely between refreshes.
+FALLBACK_CACHE_TTL_SECONDS = 300
+_fallback_cache = {}   # {cache_key: (fetched_at, docs)}
+
+
+def _cached_fallback_docs(coll, cache_key: str, base_filter: dict) -> list:
+    now = time.time()
+    cached = _fallback_cache.get(cache_key)
+    if cached and (now - cached[0]) < FALLBACK_CACHE_TTL_SECONDS:
+        return cached[1]
+    docs = list(coll.find(base_filter).limit(FALLBACK_SCAN_LIMIT))
+    _fallback_cache[cache_key] = (now, docs)
+    return docs
 
 # Per-process cache: once $vectorSearch is known unusable for a collection
 # (index missing, not READY, or the query itself failed), stop retrying it
@@ -158,11 +180,13 @@ def semantic_products(db, query_vec, price_limit=None, limit=30) -> list:
             )
             _atlas_unavailable["products"] = True
 
-    mongo_filter = {"embedding": {"$exists": True}, "status": "active"}
-    if price_limit is not None:
-        mongo_filter["discountedPrice"] = {"$lte": price_limit}
-    docs = list(db.products.find(mongo_filter).limit(FALLBACK_SCAN_LIMIT))
+    docs = _cached_fallback_docs(
+        db.products, "products", {"embedding": {"$exists": True}, "status": "active"},
+    )
     docs = [d for d in docs if _is_live_product(d)]
+    if price_limit is not None:
+        docs = [d for d in docs
+                if (d.get("discountedPrice") or d.get("price") or 0) <= price_limit]
     scored = _cosine_topk(query_vec, docs, limit=limit)
     return [_project_product(d, s) for s, d in scored]
 
@@ -198,7 +222,7 @@ def semantic_sellers(db, query_vec, limit=10) -> list:
             )
             _atlas_unavailable["users"] = True
 
-    docs = list(db.users.find({"embedding": {"$exists": True}}).limit(FALLBACK_SCAN_LIMIT))
+    docs = _cached_fallback_docs(db.users, "users", {"embedding": {"$exists": True}})
     scored = _cosine_topk(query_vec, docs, limit=limit)
     return [_project_seller(d, s) for s, d in scored]
 
@@ -250,7 +274,7 @@ def semantic_bits(db, query_vec, limit=15) -> list:
             )
             _atlas_unavailable["bits"] = True
 
-    docs = list(db.bits.find({"embedding": {"$exists": True}}).limit(FALLBACK_SCAN_LIMIT))
+    docs = _cached_fallback_docs(db.bits, "bits", {"embedding": {"$exists": True}})
     docs = [d for d in docs if _is_live_bit(d)]
     scored = _cosine_topk(query_vec, docs, limit=limit)
     return [_project_bit(d, s) for s, d in scored]
