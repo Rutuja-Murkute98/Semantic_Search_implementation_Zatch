@@ -31,11 +31,30 @@ logger = logging.getLogger("text_search")
 _atlas_text_unavailable = {"products": None, "users": None, "bits": None}
 
 def fuzzy_options(word: str) -> dict:
-    """Atlas Search only allows maxEdits of 1 or 2. 2 edits on a short word
-    like "sari" (4 chars) means up to half the characters can differ,
-    which matches unrelated words -- so short words get the tighter
-    tolerance."""
-    return {"maxEdits": 1 if len(word) <= 4 else 2, "prefixLength": 1}
+    """Atlas Search only allows maxEdits of 1 or 2. 2 edits on a short
+    word (<=4 chars, e.g. "sari") means up to half the characters can
+    differ, matching unrelated words -- so short words get the tighter
+    1-edit tolerance.
+
+    For longer words, edit distance alone isn't enough: "pants" fuzzy-
+    matches both "pattu" (edit distance 2) and "plants" (edit distance
+    1) with maxEdits=2, pulling completely unrelated products into
+    results. But tightening maxEdits down to 1 for these words is too
+    aggressive -- it breaks legitimate 2-edit spelling variants that
+    matter a lot in this catalog, like "kurta" -> "kurtis".
+
+    prefixLength -- requiring that many leading characters to match
+    exactly before fuzziness applies to the rest -- resolves this
+    without that tradeoff: "pants" vs "pattu" and "pants" vs "plants"
+    both diverge within the first 3 characters ("pan" vs "pat"/"pla"),
+    so raising prefixLength to 3 for longer words rejects both, while
+    "kurta" vs "kurtis" still share "kur" and remain a valid fuzzy
+    match at maxEdits=2."""
+    length = len(word)
+    return {
+        "maxEdits": 1 if length <= 4 else 2,
+        "prefixLength": 3 if length > 4 else 1,
+    }
 
 
 def _index_ready(coll, index_name: str) -> bool:

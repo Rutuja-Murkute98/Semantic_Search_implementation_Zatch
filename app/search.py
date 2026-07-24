@@ -61,6 +61,30 @@ COLORS = {
     "royal", "baby", "hot", "neon", "pastel",
 }
 
+# Descriptive modifier words -- materials, patterns, fit/style -- that
+# describe the product but are never themselves the product being
+# searched for. Same problem as colours: without this, "cotton pants"
+# picks "cotton" as the main term (since it's not a colour), gets it the
+# 3x keyword-search boost, and a cotton kurti can outrank actual pants.
+# Built from the real catalog's tags/names/subcategories, same approach
+# as COLORS.
+MATERIALS = {
+    "cotton", "silk", "linen", "lenin", "denim", "wool", "polyester",
+    "georgette", "chiffon", "satin", "velvet", "leather", "rayon",
+    "nylon", "khadi", "chanderi", "banarasi", "organza", "net", "lace",
+    "crepe", "jute", "knit", "waffle", "crochet", "muslin", "maslin",
+}
+
+PATTERNS_AND_STYLE = {
+    "striped", "stripe", "strips", "printed", "print", "plain",
+    "checkered", "checked", "check", "floral", "embroidered", "solid",
+    "textured", "texture", "plaid", "polka", "oversized", "slim",
+    "regular", "loose", "fitted", "casual", "formal", "boxy", "baggy",
+    "ethnic", "western", "fusion", "party", "premium", "designer",
+}
+
+MODIFIERS = COLORS | MATERIALS | PATTERNS_AND_STYLE
+
 # General search-noise words: filler, price phrasing, and connective words
 # that add nothing to what's being searched for ("saree with red color" ->
 # "with" and "color" are noise, not search subjects).
@@ -111,17 +135,25 @@ def pick_main_term(tokens: list, colors: set) -> str:
     product/category being searched -- rather than just whichever token
     happens to come first.
 
-    Colour words are modifiers: they already get their own dedicated
-    handling via `colors` (separate query clauses + separate scoring
-    boost). If a colour is picked as the main term merely because it's
-    first ("red saree" -> main_term="red"), it gets the heaviest keyword
-    weighting and skews results toward anything with "red" in the name,
-    regardless of category -- e.g. "red saree" surfacing unrelated red
-    electronics. Skipping colour tokens when choosing the main term fixes
-    that: "red saree" -> main_term="saree", "red" still boosts via colors.
+    Colour, material, and pattern/style words are all modifiers: they
+    describe the product but aren't themselves what's being searched for.
+    If one is picked as the main term merely because it's first ("cotton
+    pants" -> main_term="cotton", "black striped kurta" -> main_term=
+    "striped"), it gets the heaviest keyword weighting (a 3x boost in the
+    Atlas search pipeline) and can outrank the actually-relevant product
+    -- e.g. a cotton kurti outranking actual pants for "cotton pants".
+    Skipping every modifier token (not just colours -- see MODIFIERS)
+    when choosing the main term fixes that: "cotton pants" -> main_term=
+    "pants", "cotton" still contributes as a regular search token.
+
+    `colors` is still passed in separately because callers also use it to
+    build colour-specific query clauses (variants.color matching) --
+    MODIFIERS (which is colors | materials | patterns) only affects which
+    token gets promoted to "main term" here.
     """
+    skip = MODIFIERS | colors
     for tok in tokens:
-        if tok not in colors:
+        if tok not in skip:
             return tok
     return tokens[0] if tokens else ""
 

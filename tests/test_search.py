@@ -27,10 +27,29 @@ def test_pick_main_term_falls_back_to_first_token_if_all_are_colors():
     assert pick_main_term(tokens, colors) == "red"
 
 
-def test_pick_main_term_no_colors_uses_first_token():
-    tokens = search_tokens("formal shirt")
-    colors = extract_colors("formal shirt")
-    assert pick_main_term(tokens, colors) == "formal"
+def test_pick_main_term_no_modifiers_uses_first_token():
+    # Neither word is a colour/material/pattern modifier, so the first
+    # token wins by default.
+    tokens = search_tokens("necklace bag")
+    colors = extract_colors("necklace bag")
+    assert pick_main_term(tokens, colors) == "necklace"
+
+
+def test_pick_main_term_skips_material():
+    # Regression test: "cotton pants" must not pick "cotton" as the main
+    # term -- material is a modifier role, "pants" is the actual subject.
+    tokens = search_tokens("cotton pants")
+    colors = extract_colors("cotton pants")
+    assert pick_main_term(tokens, colors) == "pants"
+
+
+def test_pick_main_term_skips_pattern_and_color():
+    # Regression test: colours AND pattern words ("striped") must both be
+    # skipped so the product noun ("kurta") is chosen, not the last
+    # modifier standing.
+    tokens = search_tokens("black and white striped kurta")
+    colors = extract_colors("black and white striped kurta")
+    assert pick_main_term(tokens, colors) == "kurta"
 
 
 def test_pick_main_term_empty_tokens():
