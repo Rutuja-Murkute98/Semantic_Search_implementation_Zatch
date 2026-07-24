@@ -450,8 +450,8 @@
   }
 
   function productCard(p, i) {
-    const score = (p.vectorScore !== undefined && p.vectorScore !== null)
-      ? '<span class="card-sub">similarity: ' + p.vectorScore + '</span>' : "";
+    const score = (p.relevanceScore !== undefined && p.relevanceScore !== null)
+      ? '<span class="card-sub">relevance: ' + p.relevanceScore + '</span>' : "";
     return '<div class="card" style="animation-delay:' + (i * 25) + 'ms">' +
         '<div class="card-body">' +
           '<div class="card-icon type-product">' + ICON_PRODUCT + '</div>' +

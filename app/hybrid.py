@@ -15,7 +15,19 @@ def rrf_merge(keyword_results: list, semantic_results: list, k: int = 60) -> lis
     (they're on incompatible scales). Results are deduped by "id".
 
     Adds a `matchType` field to each result: "keyword", "semantic", or
-    "hybrid" (found by both legs).
+    "hybrid" (found by both legs). Also adds `relevanceScore`, the actual
+    combined score each result was sorted by, normalized to the top
+    result in this list (=1.0). This matters beyond cosmetics: the old
+    per-item `vectorScore` field only ever held the *semantic* leg's raw
+    score, which does not necessarily agree with the true (keyword +
+    semantic combined) sort order -- a "hybrid" result can rank above a
+    "semantic" one with a higher raw vectorScore, because its keyword-side
+    rank contributed too. Displaying vectorScore next to results sorted
+    by the combined score could then show a lower number ranked above a
+    higher one, which reads as a ranking bug even though the order itself
+    is correct. relevanceScore is guaranteed monotonically non-increasing
+    down the list because it *is* the sort key, just rescaled to be
+    readable.
     """
     scores = {}
     merged = {}
@@ -38,4 +50,12 @@ def rrf_merge(keyword_results: list, semantic_results: list, k: int = 60) -> lis
             if "vectorScore" in item:
                 merged[_id]["vectorScore"] = item["vectorScore"]
 
-    return sorted(merged.values(), key=lambda d: scores[d["id"]], reverse=True)
+    ordered = sorted(merged.values(), key=lambda d: scores[d["id"]], reverse=True)
+
+    top_score = scores[ordered[0]["id"]] if ordered else 0.0
+    for item in ordered:
+        item["relevanceScore"] = (
+            round(scores[item["id"]] / top_score, 4) if top_score else 0.0
+        )
+
+    return ordered
