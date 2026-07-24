@@ -101,9 +101,24 @@ def _business_score(p: dict) -> float:
 # ─────────────────────────────────────────────
 
 def _product_search_pipeline(tokens, colors, main_term, limit):
+    """
+    main_term is required (compound.must): a document must actually match
+    the product noun to qualify as a keyword result at all. Every other
+    token and colour is compound.should -- an optional scoring boost
+    among documents that already qualified, not an independent way in.
+
+    Without this split, a modifier word alone could qualify a completely
+    different product: searching "cotton pants" with all tokens as
+    equally-weighted "should" clauses let any product merely containing
+    "cotton" (a cotton kurti, a cotton saree) into the keyword results,
+    which then out-ranked genuinely pants-related items that only
+    matched via the semantic leg -- the customer's actual intent
+    ("pants") was being treated as equally optional as the modifier.
+    """
+    must = []
     should = []
     if main_term:
-        should.append({
+        must.append({
             "text": {
                 "query": main_term,
                 "path": ["name", "category", "subCategory", "tags", "searchKeywords"],
@@ -122,11 +137,16 @@ def _product_search_pipeline(tokens, colors, main_term, limit):
             "text": {"query": color, "path": ["name", "variants.color"], "fuzzy": fuzzy_options(color)}
         })
 
+    compound = {}
+    if must:
+        compound["must"] = must
+    if should:
+        compound["should"] = should
+        if not must:
+            compound["minimumShouldMatch"] = 1
+
     return [
-        {"$search": {
-            "index": "product_text_index",
-            "compound": {"should": should, "minimumShouldMatch": 1},
-        }},
+        {"$search": {"index": "product_text_index", "compound": compound}},
         {"$limit": limit},
         {"$addFields": {"textScore": {"$meta": "searchScore"}}},
     ]
@@ -135,34 +155,24 @@ def _product_search_pipeline(tokens, colors, main_term, limit):
 def _product_regex_fallback(db, tokens, colors, main_term):
     """No fuzziness here -- this is the degraded path used only when Atlas
     Search itself is unavailable. The semantic leg covers meaning/typos
-    the rest of the time."""
-    clauses = []
-    if main_term:
-        pat = re.escape(main_term)
-        clauses += [
-            {"name":           {"$regex": pat, "$options": "i"}},
-            {"subCategory":    {"$regex": pat, "$options": "i"}},
-            {"category":       {"$regex": pat, "$options": "i"}},
-            {"tags":           {"$elemMatch": {"$regex": pat, "$options": "i"}}},
-            {"searchKeywords": {"$elemMatch": {"$regex": pat, "$options": "i"}}},
-        ]
-    for tok in tokens:
-        if tok == main_term:
-            continue
-        pat = re.escape(tok)
-        clauses += [
-            {"name": {"$regex": pat, "$options": "i"}},
-            {"tags": {"$elemMatch": {"$regex": pat, "$options": "i"}}},
-        ]
-    for color in colors:
-        cpat = re.escape(color)
-        clauses += [
-            {"variants.color": {"$regex": cpat, "$options": "i"}},
-            {"name":           {"$regex": cpat, "$options": "i"}},
-        ]
-    if not clauses:
+    the rest of the time.
+
+    main_term must match -- same reasoning as _product_search_pipeline's
+    compound.must: without it, a document matching only a secondary
+    token/colour (e.g. "cotton" for a "cotton pants" search) would
+    qualify as a keyword result on its own, even though it has nothing
+    to do with what was actually being searched for."""
+    if not main_term:
         return []
-    return list(db.products.find({"$or": clauses}))
+    pat = re.escape(main_term)
+    query = {"$or": [
+        {"name":           {"$regex": pat, "$options": "i"}},
+        {"subCategory":    {"$regex": pat, "$options": "i"}},
+        {"category":       {"$regex": pat, "$options": "i"}},
+        {"tags":           {"$elemMatch": {"$regex": pat, "$options": "i"}}},
+        {"searchKeywords": {"$elemMatch": {"$regex": pat, "$options": "i"}}},
+    ]}
+    return list(db.products.find(query))
 
 
 def _fallback_match_score(p, tokens, colors, main_term) -> float:
