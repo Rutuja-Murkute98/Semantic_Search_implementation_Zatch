@@ -10,9 +10,18 @@ contains those words.
 1. Every product, seller, and bit (short video post) is converted into a
    "meaning vector" (embedding) by a small local, open-source model
    ([fastembed](https://github.com/qdrant/fastembed), no API key or cost)
-   and stored in MongoDB alongside the record.
+   and stored in a **dedicated companion collection**
+   (`product_embeddings`, `seller_embeddings`, `bit_embeddings`) — never
+   as a field on the product/seller/bit record itself. Each companion
+   document shares its `_id` with the record it describes, so the two
+   are joined back together at query time via `$lookup`. This means the
+   search service only ever needs write access to these three small,
+   dedicated collections — never to live product/order data — and the
+   AI-search layer stays fully separable from the core data model.
 2. At search time, the query is embedded the same way and compared against
-   stored vectors using MongoDB Atlas `$vectorSearch`.
+   stored vectors using MongoDB Atlas `$vectorSearch` on the companion
+   collection, then joined back to the real product/seller/bit for
+   filtering (status, price) and display fields.
 3. In parallel, a keyword leg matches on structured fields (name, category,
    tags) using MongoDB Atlas Search fuzzy text matching where available —
    tolerating typos natively, no hardcoded correction dictionary needed —
@@ -46,6 +55,7 @@ static/
 tests/
   test_embeddings.py       Unit tests for text builders
   test_search.py           Unit tests for query-parsing logic
+  test_hybrid.py           Unit tests for RRF merge + relevance-score ordering
   golden_queries.json      Sample queries for evaluating search quality
   run_eval.py              Hit-rate evaluation harness
 ```
@@ -71,8 +81,10 @@ uvicorn main:app --reload
 
 ## First-time setup for semantic search
 
-Requires write access on the database (to store embeddings) and, ideally,
-MongoDB Atlas (for `$vectorSearch` / fuzzy `$search`; both fall back
+Requires write access to the `product_embeddings` / `seller_embeddings` /
+`bit_embeddings` companion collections (not to `products` / `users` /
+`bits` themselves — see "How it works" above) and, ideally, MongoDB
+Atlas (for `$vectorSearch` / fuzzy `$search`; both fall back
 automatically if unavailable).
 
 ```bash

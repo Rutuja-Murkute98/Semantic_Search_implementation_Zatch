@@ -1,16 +1,31 @@
 """
-backfill_embeddings.py — computes/refreshes the `embedding` vector for
+backfill_embeddings.py — computes/refreshes the embedding vector for
 every product, seller, and bit, so semantic search has vectors to search
 over. Runs entirely locally (app/embeddings.py uses fastembed, not a
 hosted API), so there's no rate limit or API key needed here.
+
+ARCHITECTURE (Approach B): embeddings are NOT written onto the product/
+seller/bit documents themselves. They live in separate companion
+collections -- product_embeddings, seller_embeddings, bit_embeddings --
+each document keyed by the SAME _id as the record it describes:
+
+    product_embeddings: { _id: <products._id>, embedding: [...], embeddingHash: "...", updatedAt: ... }
+
+This means the backfill only ever needs write access to these three
+small, dedicated collections -- never to products/users/bits themselves.
+That's a much narrower, easier-to-approve permission than write access
+to live product/order data, and keeps the AI-search layer fully separable
+from the core data model (removing the feature is just dropping 3
+collections, no cleanup needed elsewhere). Search joins back to the
+source collection at query time via $lookup (see app/vector_search.py).
 
 Run manually for the first backfill:
     python scripts/backfill_embeddings.py
 
 Then schedule it (see the `zatch-search-backfill` cron job in render.yaml)
 so new/edited products/sellers/bits pick up vectors automatically. Docs
-are skipped if their `embeddingHash` already matches their current text,
-so re-runs are cheap.
+are skipped if their embeddingHash (in the companion collection) already
+matches their current text, so re-runs are cheap.
 
 Assumes `products.sellerId` references `users._id` (used to compute each
 seller's top categories for their "sells: ..." embedding text). Adjust
@@ -19,6 +34,7 @@ seller's top categories for their "sells: ..." embedding text). Adjust
 import logging
 import os
 import sys
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,15 +47,34 @@ logger = logging.getLogger("backfill")
 BATCH_SIZE = 100
 
 
-def _needs_embedding(doc: dict, text: str) -> bool:
-    return doc.get("embeddingHash") != text_hash(text)
+def _existing_hashes(embeddings_coll) -> dict:
+    """{_id: embeddingHash} for every doc already in a companion collection,
+    used to decide which source records actually need re-embedding."""
+    return {
+        doc["_id"]: doc.get("embeddingHash")
+        for doc in embeddings_coll.find({}, {"embeddingHash": 1})
+    }
+
+
+def _write_embeddings(embeddings_coll, docs, texts, vectors):
+    now = datetime.now(timezone.utc)
+    for doc, text, vector in zip(docs, texts, vectors):
+        embeddings_coll.update_one(
+            {"_id": doc["_id"]},
+            {"$set": {
+                "embedding": vector,
+                "embeddingHash": text_hash(text),
+                "updatedAt": now,
+            }},
+            upsert=True,
+        )
 
 
 def backfill_products(db):
+    existing = _existing_hashes(db.product_embeddings)
     cursor = db.products.find({}, {
         "name": 1, "category": 1, "subCategory": 1, "tags": 1,
         "searchKeywords": 1, "variants": 1, "description": 1,
-        "embeddingHash": 1,
     })
 
     batch_docs, batch_texts = [], []
@@ -50,11 +85,7 @@ def backfill_products(db):
         if not batch_docs:
             return
         vectors = embed_texts(batch_texts, input_type="document")
-        for doc, text, vector in zip(batch_docs, batch_texts, vectors):
-            db.products.update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"embedding": vector, "embeddingHash": text_hash(text)}},
-            )
+        _write_embeddings(db.product_embeddings, batch_docs, batch_texts, vectors)
         updated += len(batch_docs)
         batch_docs.clear()
         batch_texts.clear()
@@ -63,7 +94,7 @@ def backfill_products(db):
         text = product_to_text(doc)
         if not text.strip():
             continue
-        if not _needs_embedding(doc, text):
+        if existing.get(doc["_id"]) == text_hash(text):
             skipped += 1
             continue
         batch_docs.append(doc)
@@ -86,9 +117,10 @@ def _top_categories(db, seller_id, limit=5) -> list:
 
 
 def backfill_sellers(db):
+    existing = _existing_hashes(db.seller_embeddings)
     cursor = db.users.find(
         {"sellerStatus": {"$exists": True}},
-        {"username": 1, "sellerProfile": 1, "categoryType": 1, "embeddingHash": 1},
+        {"username": 1, "sellerProfile": 1, "categoryType": 1},
     )
 
     batch_docs, batch_texts = [], []
@@ -99,11 +131,7 @@ def backfill_sellers(db):
         if not batch_docs:
             return
         vectors = embed_texts(batch_texts, input_type="document")
-        for doc, text, vector in zip(batch_docs, batch_texts, vectors):
-            db.users.update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"embedding": vector, "embeddingHash": text_hash(text)}},
-            )
+        _write_embeddings(db.seller_embeddings, batch_docs, batch_texts, vectors)
         updated += len(batch_docs)
         batch_docs.clear()
         batch_texts.clear()
@@ -113,7 +141,7 @@ def backfill_sellers(db):
         text = seller_to_text(doc, top_categories)
         if not text.strip():
             continue
-        if not _needs_embedding(doc, text):
+        if existing.get(doc["_id"]) == text_hash(text):
             skipped += 1
             continue
         batch_docs.append(doc)
@@ -126,9 +154,8 @@ def backfill_sellers(db):
 
 
 def backfill_bits(db):
-    cursor = db.bits.find({}, {
-        "title": 1, "description": 1, "hashtags": 1, "embeddingHash": 1,
-    })
+    existing = _existing_hashes(db.bit_embeddings)
+    cursor = db.bits.find({}, {"title": 1, "description": 1, "hashtags": 1})
 
     batch_docs, batch_texts = [], []
     updated = skipped = 0
@@ -138,11 +165,7 @@ def backfill_bits(db):
         if not batch_docs:
             return
         vectors = embed_texts(batch_texts, input_type="document")
-        for doc, text, vector in zip(batch_docs, batch_texts, vectors):
-            db.bits.update_one(
-                {"_id": doc["_id"]},
-                {"$set": {"embedding": vector, "embeddingHash": text_hash(text)}},
-            )
+        _write_embeddings(db.bit_embeddings, batch_docs, batch_texts, vectors)
         updated += len(batch_docs)
         batch_docs.clear()
         batch_texts.clear()
@@ -151,7 +174,7 @@ def backfill_bits(db):
         text = bit_to_text(doc)
         if not text.strip():
             continue
-        if not _needs_embedding(doc, text):
+        if existing.get(doc["_id"]) == text_hash(text):
             skipped += 1
             continue
         batch_docs.append(doc)
@@ -165,7 +188,7 @@ def backfill_bits(db):
 
 def main():
     db = get_db()
-    logger.info("Starting embedding backfill...")
+    logger.info("Starting embedding backfill (writing to companion collections only)...")
     backfill_products(db)
     backfill_sellers(db)
     backfill_bits(db)
