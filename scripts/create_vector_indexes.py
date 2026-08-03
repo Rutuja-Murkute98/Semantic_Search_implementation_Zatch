@@ -1,8 +1,19 @@
 """
 create_vector_indexes.py — one-time setup: creates the Atlas Vector Search
-indexes semantic search depends on (plan §6, Phase 3).
+indexes semantic search depends on.
 
-Run once, after the backfill has produced `embedding` fields:
+ARCHITECTURE (Approach B): indexes are created on the companion
+collections (product_embeddings, seller_embeddings, bit_embeddings), not
+on products/users/bits themselves -- embeddings live there, never as
+fields on the core collections. See scripts/backfill_embeddings.py.
+
+Since status/price live on the source collection, not the companion
+one, they can no longer be declared as Atlas "filter" index fields here
+(that only works for fields present in the indexed collection itself).
+Filtering happens via $lookup + $match in the query pipeline instead --
+see app/vector_search.py.
+
+Run once, after the backfill has produced embeddings:
     python scripts/create_vector_indexes.py
 
 Requires MongoDB Atlas (the free M0 tier supports Vector Search). Indexes
@@ -36,8 +47,6 @@ PRODUCT_INDEX = SearchIndexModel(
     definition={
         "fields": [
             {"type": "vector", "path": "embedding", "numDimensions": 384, "similarity": "cosine"},
-            {"type": "filter", "path": "status"},
-            {"type": "filter", "path": "discountedPrice"},
         ]
     },
     name="product_vector_index",
@@ -71,9 +80,9 @@ def main():
     # See INDEX BUDGET note above -- only one of these three should be
     # enabled at a time alongside product_text_index on M0.
     for name, coll, model in (
-        ("product_vector_index", db.products, PRODUCT_INDEX),
-        # ("bit_vector_index", db.bits, BIT_INDEX),
-        # ("seller_vector_index", db.users, SELLER_INDEX),
+        ("product_vector_index", db.product_embeddings, PRODUCT_INDEX),
+        # ("bit_vector_index", db.bit_embeddings, BIT_INDEX),
+        # ("seller_vector_index", db.seller_embeddings, SELLER_INDEX),
     ):
         try:
             existing = list(coll.list_search_indexes(name))

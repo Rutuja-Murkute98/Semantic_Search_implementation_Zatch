@@ -1,11 +1,22 @@
 """
 vector_search.py — semantic ("meaning-based") retrieval leg.
 
-Primary path: MongoDB Atlas $vectorSearch (plan §3, Phase 4).
-Fallback (Plan B, plan §3): automatic in-process cosine similarity with
-numpy, used the moment $vectorSearch raises (index missing, cluster isn't
-on Atlas, etc). This means semantic search degrades gracefully instead of
-breaking the API before the Atlas indexes even exist.
+ARCHITECTURE (Approach B): embeddings live in dedicated companion
+collections (product_embeddings, seller_embeddings, bit_embeddings),
+never as fields on the actual products/users/bits documents. Each
+companion doc shares its _id with the record it describes, so joining
+back to the real product/seller/bit at query time is a simple $lookup on
+_id. This means the search service never needs write access to the core
+data collections at all -- only to these three small, dedicated ones.
+See scripts/backfill_embeddings.py for the write side of this.
+
+Primary path: MongoDB Atlas $vectorSearch on the companion collection,
+then $lookup to fetch the real product/seller/bit fields needed for
+filtering (status, price, live-ness) and display (name, price, etc).
+Fallback (Plan B): automatic in-process cosine similarity with numpy,
+used the moment $vectorSearch is unavailable (index missing, cluster
+isn't on Atlas, etc). This means semantic search degrades gracefully
+instead of breaking the API before the Atlas indexes even exist.
 """
 import logging
 import time
@@ -16,27 +27,49 @@ logger = logging.getLogger("vector_search")
 
 SIM_CUTOFF = 0.6              # drop matches below this similarity (avoid nonsense)
 FALLBACK_SCAN_LIMIT = 20000    # cap for the Plan-B python-side scan
+OVERFETCH_MULTIPLIER = 3       # candidates requested from $vectorSearch, before
+                                # the post-$lookup status/price $match can shrink
+                                # the set below the caller's desired `limit`
 
-# Cache for the Plan-B fallback fetch (all embedded docs in a collection).
-# Fetching every seller/bit document over the network on every single
-# search was the dominant cost when there's no Atlas vector index for
-# that collection -- profiled at 2-7s for ~280 small documents on an
-# Atlas M0 cluster, almost entirely network round-trip time, not the
-# cosine-similarity computation itself. Embeddings only change when the
-# backfill cron runs (every 6h), so a short TTL cache removes that cost
-# from the request path entirely between refreshes.
+# Cache for the Plan-B fallback fetch (all embedded docs, joined to their
+# source record, in a collection). Fetching every seller/bit document
+# over the network on every single search was the dominant cost when
+# there's no Atlas vector index for that collection -- profiled at 2-7s
+# for ~280 small documents on an Atlas M0 cluster, almost entirely
+# network round-trip time, not the cosine-similarity computation itself.
+# Embeddings only change when the backfill cron runs (every 6h), so a
+# short TTL cache removes that cost from the request path between
+# refreshes.
 FALLBACK_CACHE_TTL_SECONDS = 300
 _fallback_cache = {}   # {cache_key: (fetched_at, docs)}
 
 
-def _cached_fallback_docs(coll, cache_key: str, base_filter: dict) -> list:
+def _cached_fallback_docs(embeddings_coll, source_coll, cache_key: str, match: dict = None) -> list:
+    """Fetches every companion-collection doc, joined to its source record
+    as `source`, via aggregation $lookup -- this is a standard MongoDB
+    feature and works with or without Atlas Search/Vector Search enabled."""
     now = time.time()
     cached = _fallback_cache.get(cache_key)
     if cached and (now - cached[0]) < FALLBACK_CACHE_TTL_SECONDS:
         return cached[1]
-    docs = list(coll.find(base_filter).limit(FALLBACK_SCAN_LIMIT))
+
+    pipeline = [
+        {"$lookup": {
+            "from": source_coll.name,
+            "localField": "_id",
+            "foreignField": "_id",
+            "as": "source",
+        }},
+        {"$unwind": "$source"},
+    ]
+    if match:
+        pipeline.append({"$match": match})
+    pipeline.append({"$limit": FALLBACK_SCAN_LIMIT})
+
+    docs = list(embeddings_coll.aggregate(pipeline))
     _fallback_cache[cache_key] = (now, docs)
     return docs
+
 
 # Per-process cache: once $vectorSearch is known unusable for a collection
 # (index missing, not READY, or the query itself failed), stop retrying it
@@ -112,29 +145,44 @@ def _cosine_topk(query_vec, docs, vector_field="embedding", limit=30):
     return scored[:limit]
 
 
-def _project_product(doc, score):
-    price = doc.get("discountedPrice") or doc.get("price") or 0
+def _project_product(source, score):
+    price = source.get("discountedPrice") or source.get("price") or 0
     return {
         "type": "product",
-        "id": oid_str(doc.get("_id")),
-        "name": doc.get("name", ""),
+        "id": oid_str(source.get("_id")),
+        "name": source.get("name", ""),
         "price": price,
         "vectorScore": round(float(score), 4),
     }
 
 
-def _project_seller(doc, score):
-    sp = doc.get("sellerProfile") or {}
-    pp = doc.get("profilePic") or {}
+def _project_seller(source, score):
+    sp = source.get("sellerProfile") or {}
+    pp = source.get("profilePic") or {}
     pic = (pp.get("url", "") or pp.get("uri", "")) if isinstance(pp, dict) else ""
     return {
         "type": "seller",
-        "id": oid_str(doc.get("_id")),
-        "username": doc.get("username", ""),
+        "id": oid_str(source.get("_id")),
+        "username": source.get("username", ""),
         "shopName": sp.get("shopName", "") or sp.get("businessName", ""),
         "profilePic": pic,
-        "followers": doc.get("followerCount", 0),
-        "sellerStatus": doc.get("sellerStatus", ""),
+        "followers": source.get("followerCount", 0),
+        "sellerStatus": source.get("sellerStatus", ""),
+        "vectorScore": round(float(score), 4),
+    }
+
+
+def _project_bit(source, score):
+    video = source.get("video") or {}
+    thumb = source.get("thumbnail") or {}
+    return {
+        "type": "bit",
+        "id": oid_str(source.get("_id")),
+        "title": source.get("title", ""),
+        "videoUrl": video.get("url", "") if isinstance(video, dict) else "",
+        "thumbnailUrl": thumb.get("url", "") if isinstance(thumb, dict) else "",
+        "likeCount": source.get("likeCount", 0),
+        "viewCount": source.get("viewCount", 0),
         "vectorScore": round(float(score), 4),
     }
 
@@ -143,11 +191,7 @@ def semantic_products(db, query_vec, price_limit=None, limit=30) -> list:
     if not query_vec:
         return []
 
-    vs_filter = {"status": "active"}
-    if price_limit is not None:
-        vs_filter["discountedPrice"] = {"$lte": price_limit}
-
-    if _atlas_available(db.products, "products", "product_vector_index"):
+    if _atlas_available(db.product_embeddings, "products", "product_vector_index"):
         pipeline = [
             {
                 "$vectorSearch": {
@@ -155,24 +199,27 @@ def semantic_products(db, query_vec, price_limit=None, limit=30) -> list:
                     "path": "embedding",
                     "queryVector": query_vec,
                     "numCandidates": limit * 10,
-                    "limit": limit,
-                    "filter": vs_filter,
+                    "limit": limit * OVERFETCH_MULTIPLIER,
                 }
             },
             {"$addFields": {"vectorSearchScore": {"$meta": "vectorSearchScore"}}},
+            {"$lookup": {
+                "from": "products", "localField": "_id", "foreignField": "_id", "as": "source",
+            }},
+            {"$unwind": "$source"},
+            {"$match": {"source.status": "active"}},
         ]
         try:
-            docs = list(db.products.aggregate(pipeline))
-            docs = [d for d in docs if _is_live_product(d)]
+            docs = list(db.product_embeddings.aggregate(pipeline))
+            docs = [d for d in docs if _is_live_product(d["source"])]
             results = [
-                _project_product(d, d.get("vectorSearchScore", 0))
+                _project_product(d["source"], d.get("vectorSearchScore", 0))
                 for d in docs
                 if d.get("vectorSearchScore", 0) >= SIM_CUTOFF
             ]
-            # Safety net for docs missing discountedPrice entirely.
             if price_limit is not None:
                 results = [r for r in results if (r["price"] or 0) <= price_limit]
-            return results
+            return results[:limit]
         except Exception as e:
             logger.warning(
                 "Atlas $vectorSearch unavailable for products (falling back "
@@ -181,21 +228,21 @@ def semantic_products(db, query_vec, price_limit=None, limit=30) -> list:
             _atlas_unavailable["products"] = True
 
     docs = _cached_fallback_docs(
-        db.products, "products", {"embedding": {"$exists": True}, "status": "active"},
+        db.product_embeddings, db.products, "products", {"source.status": "active"},
     )
-    docs = [d for d in docs if _is_live_product(d)]
+    docs = [d for d in docs if _is_live_product(d["source"])]
     if price_limit is not None:
         docs = [d for d in docs
-                if (d.get("discountedPrice") or d.get("price") or 0) <= price_limit]
+                if (d["source"].get("discountedPrice") or d["source"].get("price") or 0) <= price_limit]
     scored = _cosine_topk(query_vec, docs, limit=limit)
-    return [_project_product(d, s) for s, d in scored]
+    return [_project_product(d["source"], s) for s, d in scored]
 
 
 def semantic_sellers(db, query_vec, limit=10) -> list:
     if not query_vec:
         return []
 
-    if _atlas_available(db.users, "users", "seller_vector_index"):
+    if _atlas_available(db.seller_embeddings, "users", "seller_vector_index"):
         pipeline = [
             {
                 "$vectorSearch": {
@@ -207,11 +254,15 @@ def semantic_sellers(db, query_vec, limit=10) -> list:
                 }
             },
             {"$addFields": {"vectorSearchScore": {"$meta": "vectorSearchScore"}}},
+            {"$lookup": {
+                "from": "users", "localField": "_id", "foreignField": "_id", "as": "source",
+            }},
+            {"$unwind": "$source"},
         ]
         try:
-            docs = list(db.users.aggregate(pipeline))
+            docs = list(db.seller_embeddings.aggregate(pipeline))
             return [
-                _project_seller(d, d.get("vectorSearchScore", 0))
+                _project_seller(d["source"], d.get("vectorSearchScore", 0))
                 for d in docs
                 if d.get("vectorSearchScore", 0) >= SIM_CUTOFF
             ]
@@ -222,31 +273,16 @@ def semantic_sellers(db, query_vec, limit=10) -> list:
             )
             _atlas_unavailable["users"] = True
 
-    docs = _cached_fallback_docs(db.users, "users", {"embedding": {"$exists": True}})
+    docs = _cached_fallback_docs(db.seller_embeddings, db.users, "users")
     scored = _cosine_topk(query_vec, docs, limit=limit)
-    return [_project_seller(d, s) for s, d in scored]
-
-
-def _project_bit(doc, score):
-    video = doc.get("video") or {}
-    thumb = doc.get("thumbnail") or {}
-    return {
-        "type": "bit",
-        "id": oid_str(doc.get("_id")),
-        "title": doc.get("title", ""),
-        "videoUrl": video.get("url", "") if isinstance(video, dict) else "",
-        "thumbnailUrl": thumb.get("url", "") if isinstance(thumb, dict) else "",
-        "likeCount": doc.get("likeCount", 0),
-        "viewCount": doc.get("viewCount", 0),
-        "vectorScore": round(float(score), 4),
-    }
+    return [_project_seller(d["source"], s) for s, d in scored]
 
 
 def semantic_bits(db, query_vec, limit=15) -> list:
     if not query_vec:
         return []
 
-    if _atlas_available(db.bits, "bits", "bit_vector_index"):
+    if _atlas_available(db.bit_embeddings, "bits", "bit_vector_index"):
         pipeline = [
             {
                 "$vectorSearch": {
@@ -254,19 +290,24 @@ def semantic_bits(db, query_vec, limit=15) -> list:
                     "path": "embedding",
                     "queryVector": query_vec,
                     "numCandidates": limit * 10,
-                    "limit": limit,
+                    "limit": limit * OVERFETCH_MULTIPLIER,
                 }
             },
             {"$addFields": {"vectorSearchScore": {"$meta": "vectorSearchScore"}}},
+            {"$lookup": {
+                "from": "bits", "localField": "_id", "foreignField": "_id", "as": "source",
+            }},
+            {"$unwind": "$source"},
         ]
         try:
-            docs = list(db.bits.aggregate(pipeline))
-            docs = [d for d in docs if _is_live_bit(d)]
-            return [
-                _project_bit(d, d.get("vectorSearchScore", 0))
+            docs = list(db.bit_embeddings.aggregate(pipeline))
+            docs = [d for d in docs if _is_live_bit(d["source"])]
+            results = [
+                _project_bit(d["source"], d.get("vectorSearchScore", 0))
                 for d in docs
                 if d.get("vectorSearchScore", 0) >= SIM_CUTOFF
             ]
+            return results[:limit]
         except Exception as e:
             logger.warning(
                 "Atlas $vectorSearch unavailable for bits (falling back "
@@ -274,7 +315,7 @@ def semantic_bits(db, query_vec, limit=15) -> list:
             )
             _atlas_unavailable["bits"] = True
 
-    docs = _cached_fallback_docs(db.bits, "bits", {"embedding": {"$exists": True}})
-    docs = [d for d in docs if _is_live_bit(d)]
+    docs = _cached_fallback_docs(db.bit_embeddings, db.bits, "bits")
+    docs = [d for d in docs if _is_live_bit(d["source"])]
     scored = _cosine_topk(query_vec, docs, limit=limit)
-    return [_project_bit(d, s) for s, d in scored]
+    return [_project_bit(d["source"], s) for s, d in scored]
