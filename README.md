@@ -33,6 +33,13 @@ contains those words.
 6. If the embedding model or Atlas Search/Vector Search isn't available,
    search automatically falls back to plain regex matching / in-process
    cosine similarity — it never fails the request.
+7. New/edited products, sellers, and bits become searchable automatically,
+   within seconds — a background worker (`app/change_stream_listener.py`)
+   watches the live database via MongoDB Change Streams and re-embeds only
+   what changed, the moment it changes. No manual re-run, no snapshot, no
+   fixed delay. A daily cron re-run of the backfill script stays in place
+   purely as a safety net in case an event is ever missed (e.g. during a
+   brief restart) — it's no longer the primary freshness mechanism.
 
 ## Project layout
 
@@ -45,8 +52,10 @@ app/
   text_search.py           Atlas Search fuzzy keyword matching + regex fallback
   vector_search.py         $vectorSearch queries + fallback
   hybrid.py                Reciprocal Rank Fusion merge
+  change_stream_listener.py  Real-time embedding sync via MongoDB Change Streams
 scripts/
   backfill_embeddings.py   Generates/refreshes embeddings for products/sellers/bits
+  run_change_stream_listener.py  Entrypoint for the real-time sync worker
   create_vector_indexes.py One-time Atlas Vector Search index setup
   create_text_indexes.py   One-time Atlas Search fuzzy-text index setup
   export_to_staging.py     Copies real (read-only) catalog data into a staging DB
@@ -93,15 +102,37 @@ python scripts/create_text_indexes.py      # one-time: create Atlas fuzzy text i
 python scripts/backfill_embeddings.py      # generate embeddings for existing data
 ```
 
-Re-run the backfill any time products/sellers/bits change — it skips
-documents whose text hasn't changed, so re-runs are cheap. In production
-this runs on a schedule via the cron job defined in `render.yaml`. No API
-key or per-request cost is involved — embeddings run locally.
+This one-time run covers everything that exists right now. After that,
+new/edited data is picked up automatically — see below — you never need
+to re-run this by hand. No API key or per-request cost is involved —
+embeddings run locally.
+
+## Keeping embeddings fresh automatically
+
+```bash
+python scripts/run_change_stream_listener.py   # long-running, never exits
+```
+
+This watches `products`, `users`, and `bits` directly via MongoDB Change
+Streams and re-embeds only the document that actually changed, within
+seconds — new sellers, new products, new bits, edits, and deletions are
+all handled automatically. It never touches `products`/`users`/`bits`
+itself (read-only there); it only writes to the 3 companion collections,
+plus a small internal `_embedding_sync_state` collection that stores a
+resume token per watched collection, so a restart picks up exactly where
+it left off instead of missing anything.
+
+`scripts/backfill_embeddings.py` stays in place too, now running on a
+daily schedule (see `render.yaml`) purely as a safety net — it's cheap
+to re-run since it skips anything whose text hasn't changed.
 
 ## Deployment
 
-Deploys to [Render](https://render.com) using `render.yaml` (a web service +
-a cron job for the scheduled backfill). Required environment variable on
-both services:
+Deploys to [Render](https://render.com) using `render.yaml`: a web
+service, a persistent background worker
+(`zatch-search-embedding-sync`, running `run_change_stream_listener.py`
+— this is what needs to stay always-on, not just spin up on a schedule),
+and a daily cron job for the backfill safety net. Required environment
+variable on all three services:
 
 - `MONGO_URI`
