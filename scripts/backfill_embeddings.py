@@ -39,7 +39,10 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.db import get_db
-from app.embeddings import embed_texts, product_to_text, seller_to_text, bit_to_text, text_hash
+from app.embeddings import (
+    embed_texts, product_to_text, seller_to_text, bit_to_text, text_hash,
+    top_categories,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("backfill")
@@ -106,20 +109,17 @@ def backfill_products(db):
     logger.info("Products: updated %d, skipped (unchanged) %d", updated, skipped)
 
 
-def _top_categories(db, seller_id, limit=5) -> list:
-    pipeline = [
-        {"$match": {"sellerId": seller_id, "status": "active"}},
-        {"$group": {"_id": "$category", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": limit},
-    ]
-    return [d["_id"] for d in db.products.aggregate(pipeline) if d.get("_id")]
-
-
 def backfill_sellers(db):
     existing = _existing_hashes(db.seller_embeddings)
+    # NOTE: filtering on sellerStatus == "active", not just field existence.
+    # Every user document has a sellerStatus field by default ("buyer" for
+    # regular customers, "rejected" for declined seller applications, "active"
+    # for approved sellers) -- an existence check matches the entire user
+    # base, not just real sellers. There is no downstream live-status filter
+    # for sellers at query time (unlike products/bits), so this has to be
+    # correct here.
     cursor = db.users.find(
-        {"sellerStatus": {"$exists": True}},
+        {"sellerStatus": "active"},
         {"username": 1, "sellerProfile": 1, "categoryType": 1},
     )
 
@@ -137,8 +137,8 @@ def backfill_sellers(db):
         batch_texts.clear()
 
     for doc in cursor:
-        top_categories = _top_categories(db, doc["_id"])
-        text = seller_to_text(doc, top_categories)
+        seller_categories = top_categories(db, doc["_id"])
+        text = seller_to_text(doc, seller_categories)
         if not text.strip():
             continue
         if existing.get(doc["_id"]) == text_hash(text):

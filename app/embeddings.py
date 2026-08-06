@@ -115,6 +115,21 @@ def seller_to_text(s: dict, top_categories: list = None) -> str:
     return ". ".join(part for part in parts if part).strip()
 
 
+def top_categories(db, seller_id, limit: int = 5) -> list:
+    """The categories a seller's active listings fall into most, used to
+    build their `seller_to_text()` "sells: ..." line. Shared between the
+    periodic backfill (scripts/backfill_embeddings.py) and the real-time
+    change-stream listener (app/change_stream_listener.py) so both build
+    seller text the exact same way."""
+    pipeline = [
+        {"$match": {"sellerId": seller_id, "status": "active"}},
+        {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": limit},
+    ]
+    return [d["_id"] for d in db.products.aggregate(pipeline) if d.get("_id")]
+
+
 def bit_to_text(b: dict) -> str:
     """Builds the search-document string embedded for a bit (short video post)."""
     title = b.get("title", "") or ""

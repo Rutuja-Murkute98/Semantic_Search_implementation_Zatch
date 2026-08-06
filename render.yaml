@@ -11,10 +11,29 @@ services:
       - key: MONGO_URI
         sync: false   # set this manually in Render dashboard
 
+  - type: worker
+    name: zatch-search-embedding-sync
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/run_change_stream_listener.py
+    # Persistent background process (not cron -- it never exits). Watches
+    # products/users/bits via MongoDB Change Streams and keeps the
+    # embedding collections in sync within seconds of a real change, no
+    # manual re-run and no fixed polling delay. See
+    # app/change_stream_listener.py for the full explanation.
+    envVars:
+      - key: MONGO_URI
+        sync: false   # set this manually in Render dashboard
+
   - type: cron
     name: zatch-search-backfill
     runtime: python
-    schedule: "0 */6 * * *"   # every 6 hours — keeps embeddings fresh
+    schedule: "0 3 * * *"   # once daily — safety-net reconciliation only
+    # Primary freshness now comes from zatch-search-embedding-sync above
+    # (real-time). This cron job is a backstop: it catches anything that
+    # was ever missed (e.g. a brief gap during a worker restart/deploy)
+    # by re-checking every document's text hash -- cheap, since it skips
+    # anything unchanged.
     buildCommand: pip install -r requirements.txt
     startCommand: python scripts/backfill_embeddings.py
     envVars:
