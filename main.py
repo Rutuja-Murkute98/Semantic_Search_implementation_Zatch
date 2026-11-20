@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.embeddings import get_model
 from app.search import router as search_router
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("main")
 
 app = FastAPI(title="Zatch Search API", version="3.0")

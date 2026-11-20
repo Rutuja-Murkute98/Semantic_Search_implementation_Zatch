@@ -23,45 +23,101 @@ import logging
 import os
 import threading
 
+from datetime import datetime, timezone
+
 from app.change_stream_listener import (
     _SYNC_HANDLERS, _watch_forever,
 )
 from app.db import get_db
+from app.embeddings import (
+    embed_texts, product_to_text, seller_to_text, bit_to_text, text_hash,
+    top_categories,
+)
 
 logger = logging.getLogger("background_sync")
 
 RECONCILE_INTERVAL_SECONDS = 3600  # safety-net pass once an hour while awake
 
-# (source collection, embeddings collection, source filter). The filter
-# mirrors the rule in the handlers: only active sellers get an embedding.
+EMBED_BATCH_SIZE = 16
+
+# (source collection, embeddings collection, source filter, text builder).
+# The filter mirrors the rule in the change-stream handlers: only active
+# sellers get an embedding.
+def _product_text(db, doc):
+    return product_to_text(doc)
+
+
+def _seller_text(db, doc):
+    return seller_to_text(doc, top_categories(db, doc["_id"]))
+
+
+def _bit_text(db, doc):
+    return bit_to_text(doc)
+
+
 _RECONCILE_SPECS = [
-    ("products", "product_embeddings", {}),
-    ("users", "seller_embeddings", {"sellerStatus": "active"}),
-    ("bits", "bit_embeddings", {}),
+    ("products", "product_embeddings", {}, _product_text),
+    ("users", "seller_embeddings", {"sellerStatus": "active"}, _seller_text),
+    ("bits", "bit_embeddings", {}, _bit_text),
 ]
 
 
-def reconcile(db) -> dict:
-    """Embeds every source record that is missing/changed and deletes
-    embeddings whose source is gone. Returns {source: orphans_removed}."""
+def _priority(doc) -> int:
+    """Live (active) products first -- those are the ones customers can
+    actually see, so they should get embedded before drafts/inactive."""
+    return 0 if doc.get("status") == "active" else 1
+
+
+def reconcile(db, stop_event: threading.Event = None) -> dict:
+    """Embeds every source record that is missing/changed (in batches) and
+    deletes embeddings whose source is gone. Returns {source: orphans_removed}.
+
+    Compares hashes in bulk first, so an up-to-date collection costs only a
+    couple of reads instead of one round trip per document."""
     removed = {}
-    for source, embeddings, source_filter in _RECONCILE_SPECS:
-        handler = _SYNC_HANDLERS[source]
-        ids = [d["_id"] for d in db[source].find(source_filter, {"_id": 1})]
-        for doc_id in ids:
+    for source, embeddings, source_filter, build_text in _RECONCILE_SPECS:
+        docs = list(db[source].find(source_filter))
+        docs.sort(key=_priority)
+        existing = {d["_id"]: d.get("embeddingHash")
+                    for d in db[embeddings].find({}, {"embeddingHash": 1})}
+
+        todo = []
+        for doc in docs:
             try:
-                handler(db, doc_id)  # no-ops when the text hash is unchanged
+                text = build_text(db, doc)
             except Exception:
-                logger.exception("Reconcile: failed to sync %s _id=%s", source, doc_id)
+                logger.exception("Reconcile: failed to build text for %s _id=%s", source, doc.get("_id"))
+                continue
+            if text.strip() and existing.get(doc["_id"]) != text_hash(text):
+                todo.append((doc["_id"], text))
+
+        for i in range(0, len(todo), EMBED_BATCH_SIZE):
+            if stop_event is not None and stop_event.is_set():
+                return removed
+            batch = todo[i:i + EMBED_BATCH_SIZE]
+            try:
+                vectors = embed_texts([t for _, t in batch], input_type="document")
+                now = datetime.now(timezone.utc)
+                for (doc_id, text), vector in zip(batch, vectors):
+                    db[embeddings].update_one(
+                        {"_id": doc_id},
+                        {"$set": {"embedding": vector, "embeddingHash": text_hash(text),
+                                  "updatedAt": now}},
+                        upsert=True,
+                    )
+            except Exception:
+                logger.exception("Reconcile: failed to embed a batch for %s", source)
+        if todo:
+            logger.info("Reconcile: %s -- embedded %d of %d needing it.", source, len(todo), len(docs))
 
         # Orphan cleanup. Skipped when the source came back empty, so a
         # wrong/empty read can never wipe a whole embeddings collection.
         orphans_removed = 0
-        if ids:
-            valid = set(ids)
-            for d in db[embeddings].find({}, {"_id": 1}):
-                if d["_id"] not in valid:
-                    db[embeddings].delete_one({"_id": d["_id"]})
+        if docs:
+            valid = {d["_id"] for d in docs}
+            for doc_id in existing:
+                if doc_id not in valid:
+                    db[embeddings].delete_one({"_id": doc_id})
                     orphans_removed += 1
         removed[source] = orphans_removed
     return removed
@@ -80,7 +136,7 @@ def run_forever(stop_event: threading.Event):
 
     while not stop_event.is_set():
         try:
-            removed = reconcile(db)
+            removed = reconcile(db, stop_event)
             logger.info("Embedding reconcile finished (orphans removed: %s).", removed)
         except Exception:
             logger.exception("Embedding reconcile failed; will retry next interval.")
