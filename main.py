@@ -37,6 +37,18 @@ def warm_up_embedding_model():
                         "will retry lazily on first query): %s", e)
 
 
+@app.on_event("startup")
+def start_background_embedding_sync():
+    """Free-tier Render has no workers/cron, so embedding sync runs on
+    background threads of this web process (see app/background_sync.py).
+    Failure here must never stop the API from starting."""
+    try:
+        from app.background_sync import start
+        start()
+    except Exception as e:
+        logger.warning("Background embedding sync failed to start: %s", e)
+
+
 @app.get("/")
 def home():
     return RedirectResponse(url="/demo/")

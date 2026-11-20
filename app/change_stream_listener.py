@@ -28,7 +28,7 @@ import threading
 import time
 from datetime import datetime, timezone
 
-from pymongo.errors import PyMongoError
+from pymongo.errors import OperationFailure, PyMongoError
 
 from app.db import get_db
 from app.embeddings import (
@@ -155,6 +155,18 @@ def _watch_forever(db, collection_name: str, stop_event: threading.Event):
                     # Save progress after every event (processed or not) so
                     # a restart never reprocesses the same event twice.
                     _save_resume_token(db, collection_name, stream.resume_token)
+        except OperationFailure as e:
+            # 286 = ChangeStreamHistoryLost, 280 = ChangeStreamFatalError:
+            # the saved resume position is no longer in Atlas's (small, on
+            # free tier) oplog. Retrying with the same token would loop
+            # forever, so drop it and start fresh; the reconcile pass /
+            # backfill picks up anything missed in the gap.
+            if e.code in (280, 286):
+                logger.warning("Resume token for '%s' expired -- starting a fresh stream.", collection_name)
+                db[STATE_COLLECTION].delete_one({"_id": collection_name})
+            else:
+                logger.exception("Change stream on '%s' failed.", collection_name)
+            time.sleep(RECONNECT_DELAY_SECONDS)
         except PyMongoError:
             logger.exception(
                 "Change stream on '%s' dropped -- reconnecting in %ss.",
